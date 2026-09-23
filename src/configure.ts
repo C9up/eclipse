@@ -7,6 +7,8 @@
  * mean installed AND working.
  */
 
+import { stubsRoot } from "./stubs.js";
+
 interface Codemods {
 	addProvider(importPath: string): Promise<void>;
 	addEnvVars(vars: Record<string, string>): Promise<void>;
@@ -15,6 +17,12 @@ interface Codemods {
 		content: string,
 		options?: { force?: boolean },
 	): Promise<void>;
+	makeUsingStub(
+		stubsRoot: string,
+		stubPath: string,
+		state?: Record<string, string | number | boolean>,
+		options?: { force?: boolean },
+	): Promise<{ path: string; contents: string }>;
 }
 
 export async function configure(codemods: Codemods): Promise<void> {
@@ -26,23 +34,5 @@ export async function configure(codemods: Codemods): Promise<void> {
 	});
 
 	await codemods.addProvider("@c9up/eclipse/provider");
-	await codemods.writeFile(
-		"config/lock.ts",
-		`import { defineConfig, stores } from '@c9up/eclipse'
-import env from '#start/env'
-
-export default defineConfig({
-  default: env.get('LOCK_STORE', 'memory'),
-
-  stores: {
-    // In this process only. Two replicas each keep their own map and will
-    // both take the same key — for a single-process deployment and tests.
-    memory: stores.memory(),
-
-    // Shared. What a second replica needs; names a @c9up/quasar connection,
-    // resolved on the first lock.
-    redis: stores.redis({ connection: 'main' }),
-  },
-})`,
-	);
+	await codemods.makeUsingStub(stubsRoot, "config/lock.stub");
 }

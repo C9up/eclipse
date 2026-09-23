@@ -1,6 +1,6 @@
 {
   "name": "@c9up/eclipse",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Eclipse — distributed locks for the Ream framework: pluggable store contract with memory + Redis drivers",
   "license": "MIT",
   "type": "module",
@@ -41,7 +41,7 @@
   },
   "peerDependencies": {
     "@c9up/quasar": "^0.1.0 || ^0.2.0",
-    "@c9up/ream": "^0.2.0"
+    "@c9up/ream": "^0.2.26"
   },
   "peerDependenciesMeta": {
     "@c9up/ream": {
@@ -54,7 +54,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.12",
     "@c9up/quasar": "^0.1.0 || ^0.2.0",
-    "@c9up/ream": "^0.2.0",
+    "@c9up/ream": "^0.2.26",
     "@types/node": "^22.20.1",
     "@vitest/coverage-v8": "4.1.11",
     "typescript": "^6.0.3",
@@ -67,6 +67,7 @@
   "files": [
     "src",
     "dist",
+    "stubs",
     "README.md",
     "LICENSE"
   ],
