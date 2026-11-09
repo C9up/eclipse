@@ -126,9 +126,12 @@ release does not replace it.
 ```ts
 import { fakeLocks } from "@c9up/eclipse/testing"
 
-const restore = fakeLocks()
+const restore = fakeLocks(app.container)
 afterEach(restore)
 ```
+
+The teardown puts back the manager the fake replaced. Given the container, the
+fake also stands behind its `LockManager`, `lock` and `eclipse.lock` bindings.
 
 ## License
 

@@ -38,9 +38,74 @@ describe("services/main", () => {
 	});
 
 	it("fakeLocks publishes a memory manager and hands back its teardown", async () => {
+		clearLocks();
 		const restore = fakeLocks();
 		expect(await locks.createLock("k").acquireImmediately()).toBe(true);
 		restore();
 		expect(getLocks()).toBeUndefined();
+	});
+
+	it("fakeLocks' teardown restores the manager it replaced", () => {
+		const real = new LockManager({
+			default: "memory",
+			stores: { memory: stores.memory() },
+		});
+		setLocks(real);
+		const restore = fakeLocks();
+		expect(getLocks()).not.toBe(real);
+		restore();
+		expect(getLocks()).toBe(real);
+		clearLocks();
+	});
+
+	it("nested fakes unwind in order", () => {
+		const real = new LockManager({
+			default: "memory",
+			stores: { memory: stores.memory() },
+		});
+		setLocks(real);
+		const restoreOuter = fakeLocks();
+		const outer = getLocks();
+		const restoreInner = fakeLocks();
+		restoreInner();
+		expect(getLocks()).toBe(outer);
+		restoreOuter();
+		expect(getLocks()).toBe(real);
+		clearLocks();
+	});
+
+	it("a stale teardown does not unpublish a manager bound after it", () => {
+		clearLocks();
+		const restore = fakeLocks();
+		const later = new LockManager({
+			default: "memory",
+			stores: { memory: stores.memory() },
+		});
+		setLocks(later);
+		restore();
+		expect(getLocks()).toBe(later);
+		clearLocks();
+	});
+
+	it("fakeLocks swaps the container bindings too, and restores them", async () => {
+		const swapped = new Map<unknown, () => unknown>();
+		const restored: unknown[] = [];
+		const container = {
+			swap(token: unknown, factory: () => unknown) {
+				swapped.set(token, factory);
+			},
+			restore(token: unknown) {
+				restored.push(token);
+				swapped.delete(token);
+			},
+		};
+		clearLocks();
+		const restore = fakeLocks(container);
+		const fake = getLocks();
+		expect([...swapped.keys()]).toEqual([LockManager, "eclipse.lock", "lock"]);
+		for (const factory of swapped.values()) expect(factory()).toBe(fake);
+		restore();
+		expect(restored).toEqual([LockManager, "eclipse.lock", "lock"]);
+		expect(swapped.size).toBe(0);
 	});
 });
