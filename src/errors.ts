@@ -67,6 +67,22 @@ export class InvalidTtlError extends EclipseError {
 	}
 }
 
+/**
+ * Raised for a retry option that cannot bound the wait.
+ *
+ * `Number(env.LOCK_TIMEOUT)` on an unset variable is `NaN`, and a `NaN`
+ * deadline is never reached while a `NaN` or negative delay sleeps 1ms: every
+ * replica then polls the shared store in a tight loop, forever.
+ */
+export class InvalidRetryError extends EclipseError {
+	constructor(option: string, value: unknown, expected: string) {
+		super(
+			"E_ECLIPSE_INVALID_RETRY",
+			`Eclipse: retry.${option} must be ${expected} — got ${String(value)}`,
+		);
+	}
+}
+
 /** Raised when a config names a store that does not exist. */
 export class UnknownStoreError extends EclipseError {
 	constructor(name: string, known: readonly string[]) {

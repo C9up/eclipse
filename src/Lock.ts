@@ -8,24 +8,87 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type Duration, resolveMs } from "./duration.js";
-import { InvalidTtlError } from "./errors.js";
+import { InvalidRetryError, InvalidTtlError } from "./errors.js";
 import type {
 	LockAcquireOptions,
 	LockStore,
 	ResolvedLockConfig,
+	RetryConfig,
 	SerializedLock,
 } from "./types.js";
+
+/**
+ * Node's timer ceiling. A longer sleep is clamped to 1ms, which would turn
+ * the wait between attempts into a tight poll of the store.
+ */
+const MAX_DELAY_MS = 2_147_483_647;
 
 /**
  * Reject a TTL that cannot bound anything.
  *
  * A zero or negative lease expires the instant it is taken, so every instance
  * acquires the same lock and runs the same work — the exact outcome locking
- * exists to prevent, arriving silently.
+ * exists to prevent, arriving silently. Past `Number.MAX_SAFE_INTEGER` the
+ * memory store would accept what Redis rejects on every acquire, so the same
+ * config would lock in tests and fail in production.
  */
 export function assertValidTtl(ttl: number | null): void {
 	if (ttl === null) return;
-	if (!Number.isFinite(ttl) || ttl <= 0) throw new InvalidTtlError(ttl);
+	if (!Number.isFinite(ttl) || ttl <= 0 || ttl > Number.MAX_SAFE_INTEGER) {
+		throw new InvalidTtlError(ttl);
+	}
+}
+
+/**
+ * Merge per-call retry options over `base` and reject what cannot bound the
+ * wait.
+ *
+ * Upstream validates none of these. A `NaN` deadline is never reached, and a
+ * `NaN`, negative or oversized delay sleeps 1ms, so a config typo turns one
+ * `acquire()` into an unbounded poll of the shared store from every replica.
+ * `attempts: NaN` or `0` would give up without ever asking the store.
+ */
+export function resolveRetry(
+	retry: RetryConfig | undefined,
+	base: ResolvedLockConfig["retry"],
+): ResolvedLockConfig["retry"] {
+	const attempts = retry?.attempts ?? base.attempts;
+	if (
+		attempts !== Number.POSITIVE_INFINITY &&
+		!(Number.isInteger(attempts) && attempts > 0)
+	) {
+		throw new InvalidRetryError(
+			"attempts",
+			attempts,
+			"a positive integer, or Infinity",
+		);
+	}
+	const delay =
+		retry?.delay === undefined ? base.delay : resolveMs(retry.delay, null);
+	if (
+		delay === null ||
+		!Number.isFinite(delay) ||
+		delay < 0 ||
+		delay > MAX_DELAY_MS
+	) {
+		throw new InvalidRetryError(
+			"delay",
+			delay,
+			`a duration between 0 and ${MAX_DELAY_MS}ms`,
+		);
+	}
+	const timeout =
+		retry?.timeout === undefined
+			? base.timeout
+			: (resolveMs(retry.timeout, null) ?? undefined);
+	if (timeout !== undefined && (Number.isNaN(timeout) || timeout < 0)) {
+		throw new InvalidRetryError(
+			"timeout",
+			timeout,
+			"a duration of 0 or more, or null for no deadline",
+		);
+	}
+	return { attempts, delay, timeout };
 }
 
 export class Lock {
@@ -113,13 +176,12 @@ export class Lock {
 	 * @returns `true` once held, `false` when it gave up.
 	 */
 	async acquire(options: LockAcquireOptions = {}): Promise<boolean> {
+		const {
+			attempts: maxAttempts,
+			delay,
+			timeout,
+		} = resolveRetry(options.retry, this.#config.retry);
 		this.#expirationTime = null;
-		const maxAttempts = options.retry?.attempts ?? this.#config.retry.attempts;
-		const delay =
-			resolveMs(options.retry?.delay, this.#config.retry.delay) ?? 0;
-		const timeout =
-			resolveMs(options.retry?.timeout, this.#config.retry.timeout ?? null) ??
-			undefined;
 		const start = Date.now();
 
 		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -240,9 +302,8 @@ export class Lock {
 	 */
 	async extend(duration?: Duration): Promise<void> {
 		const ms = resolveMs(duration, this.#ttl);
-		if (ms === null || !Number.isFinite(ms) || ms <= 0) {
-			throw new InvalidTtlError(ms);
-		}
+		if (ms === null) throw new InvalidTtlError(ms);
+		assertValidTtl(ms);
 		await this.#store.extend(this.#key, this.#owner, ms);
 		this.#expirationTime = Date.now() + ms;
 	}

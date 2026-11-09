@@ -22,6 +22,7 @@ import "./augmentations.js";
 export { type Duration, parseDuration, resolveMs } from "./duration.js";
 export {
 	EclipseError,
+	InvalidRetryError,
 	InvalidTtlError,
 	LockNotOwnedError,
 	LockStorageError,

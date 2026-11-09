@@ -17,7 +17,7 @@
 
 import { type Duration, resolveMs } from "./duration.js";
 import { UnknownStoreError } from "./errors.js";
-import { Lock } from "./Lock.js";
+import { assertValidTtl, Lock, resolveRetry } from "./Lock.js";
 import { quasarConnection } from "./quasar.js";
 import { MemoryStore } from "./stores/MemoryStore.js";
 import {
@@ -29,7 +29,6 @@ import type {
 	LockFactoryOptions,
 	LockStore,
 	ResolvedLockConfig,
-	RetryConfig,
 	SerializedLock,
 } from "./types.js";
 
@@ -49,15 +48,17 @@ const DEFAULTS = {
 	attempts: Number.POSITIVE_INFINITY,
 } as const;
 
+/** Validated here, so a bad default fails where it is configured, not on first use. */
 function resolveConfig(options: LockFactoryOptions = {}): ResolvedLockConfig {
-	const retry: RetryConfig = options.retry ?? {};
+	const ttl = resolveMs(options.ttl, DEFAULTS.ttl);
+	assertValidTtl(ttl);
 	return {
-		retry: {
-			attempts: retry.attempts ?? DEFAULTS.attempts,
-			delay: resolveMs(retry.delay, DEFAULTS.delay) ?? DEFAULTS.delay,
-			timeout: resolveMs(retry.timeout, null) ?? undefined,
-		},
-		ttl: resolveMs(options.ttl, DEFAULTS.ttl),
+		retry: resolveRetry(options.retry, {
+			attempts: DEFAULTS.attempts,
+			delay: DEFAULTS.delay,
+			timeout: undefined,
+		}),
+		ttl,
 	};
 }
 
