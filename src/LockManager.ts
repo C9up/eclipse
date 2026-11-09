@@ -144,12 +144,28 @@ export class LockFactory {
 	}
 }
 
+/**
+ * The config's OWN store named `name`, or `undefined`.
+ *
+ * A plain `stores[name]` reads Object.prototype too, so `use('toString')`
+ * would call an inherited function as a store factory and fail on the first
+ * lock, far from the typo, instead of naming the store that does not exist.
+ */
+function ownStore(
+	declared: Record<string, StoreFactory>,
+	name: string,
+): StoreFactory | undefined {
+	if (!Object.hasOwn(declared, name)) return undefined;
+	const factory = declared[name];
+	return typeof factory === "function" ? factory : undefined;
+}
+
 export class LockManager {
 	readonly #config: LockConfig;
 	readonly #built = new Map<string, LockFactory>();
 
 	constructor(config: LockConfig) {
-		if (!config.stores[config.default]) {
+		if (ownStore(config.stores, config.default) === undefined) {
 			throw new UnknownStoreError(config.default, Object.keys(config.stores));
 		}
 		this.#config = config;
@@ -161,7 +177,7 @@ export class LockManager {
 		const existing = this.#built.get(store);
 		if (existing) return existing;
 
-		const factory = this.#config.stores[store];
+		const factory = ownStore(this.#config.stores, store);
 		if (!factory) {
 			throw new UnknownStoreError(store, Object.keys(this.#config.stores));
 		}

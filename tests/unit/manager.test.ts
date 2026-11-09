@@ -14,6 +14,24 @@ describe("LockManager", () => {
 		).toThrow(UnknownStoreError);
 	});
 
+	it.each(["toString", "constructor", "__proto__", "hasOwnProperty"])(
+		"does not resolve the inherited member %s as a store",
+		(name) => {
+			const locks = new LockManager({
+				default: "memory",
+				stores: { memory: stores.memory() },
+			});
+			expect(() => locks.use(name)).toThrow(UnknownStoreError);
+			expect(
+				() =>
+					new LockManager({
+						default: name,
+						stores: { memory: stores.memory() },
+					}),
+			).toThrow(UnknownStoreError);
+		},
+	);
+
 	it("builds each store once and reuses it", () => {
 		const factory = vi.fn(
 			() =>
