@@ -22,10 +22,12 @@ import "./augmentations.js";
 export { type Duration, parseDuration, resolveMs } from "./duration.js";
 export {
 	EclipseError,
+	InvalidConfigError,
 	InvalidRetryError,
 	InvalidTtlError,
 	LockNotOwnedError,
 	LockStorageError,
+	MissingConfigError,
 	UnknownStoreError,
 } from "./errors.js";
 export { assertValidTtl, Lock } from "./Lock.js";

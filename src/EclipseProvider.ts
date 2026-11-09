@@ -12,7 +12,8 @@
  */
 
 import "./augmentations.js";
-import { type LockConfig, LockManager, stores } from "./LockManager.js";
+import { InvalidConfigError, MissingConfigError } from "./errors.js";
+import { type LockConfig, LockManager } from "./LockManager.js";
 import { clearLocks, getLocks, setLocks } from "./services/main.js";
 
 /**
@@ -76,20 +77,14 @@ export default class EclipseProvider {
 	register(): void {
 		this.app.container.singleton(LockManager, () => {
 			const raw = this.app.config.get("lock");
-			// No config file is not a failure: a single-process application
-			// locking in memory is a legitimate default, and it is what the
-			// scheduler falls back to. What IS worth refusing is a config that
-			// exists but is not a lock config — that is a typo in a file the
-			// author believed was being read.
-			if (raw === undefined) {
-				return new LockManager({
-					default: "memory",
-					stores: { memory: stores.memory() },
-				});
-			}
+			// No in-process fallback: a registered provider with no config would
+			// lock per process, and every replica would take every lock without
+			// a word. An application that really runs as one process says so in
+			// config/lock.ts.
+			if (raw === undefined) throw new MissingConfigError();
 			if (!isLockConfig(raw)) {
-				throw new Error(
-					"[eclipse] config/lock.ts must export defineConfig({ default, stores }).",
+				throw new InvalidConfigError(
+					"config/lock.ts must export defineConfig({ default, stores }).",
 				);
 			}
 			return new LockManager(raw);

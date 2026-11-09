@@ -48,11 +48,30 @@ function codemods() {
 }
 
 describe("configure", () => {
-	it("registers the provider and declares the env vars its config reads", async () => {
+	it("registers the provider and points LOCK_STORE at the shared store", async () => {
 		const c = codemods();
 		await configure(c);
 		expect(c.addProvider).toHaveBeenCalledWith("@c9up/eclipse/provider");
-		expect(c.addEnvVars).toHaveBeenCalledWith({ LOCK_STORE: "memory" });
+		// The in-process store locks nothing across replicas, so it is not
+		// what a freshly configured application deploys with.
+		expect(c.addEnvVars).toHaveBeenCalledWith({ LOCK_STORE: "redis" });
+	});
+
+	it("declares LOCK_STORE's validation, so a typo fails at env validation", async () => {
+		const defineEnvValidations = vi.fn().mockResolvedValue([]);
+		await configure({ ...codemods(), defineEnvValidations });
+		expect(defineEnvValidations).toHaveBeenCalledWith({
+			leadingComment: expect.any(String),
+			variables: {
+				LOCK_STORE: "Env.schema.enum(['redis', 'memory'] as const)",
+			},
+		});
+	});
+
+	it("still configures on a host without the env validation codemod", async () => {
+		const c = codemods();
+		await expect(configure(c)).resolves.toBeUndefined();
+		expect(c.written.has("config/lock.ts")).toBe(true);
 	});
 
 	it("writes a config in the multi-store shape the manager reads", async () => {
@@ -63,6 +82,13 @@ describe("configure", () => {
 		expect(config).toContain("stores: {");
 		expect(config).toContain("stores.memory()");
 		expect(config).toContain("stores.redis({ connection: 'main' })");
-		expect(config).toContain("LOCK_STORE");
+	});
+
+	it("reads the default store from the environment with no silent fallback", async () => {
+		const c = codemods();
+		await configure(c);
+		const config = c.written.get("config/lock.ts") ?? "";
+		expect(config).toContain("default: env.get('LOCK_STORE'),");
+		expect(config).not.toContain("env.get('LOCK_STORE', ");
 	});
 });

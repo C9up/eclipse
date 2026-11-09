@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import EclipseProvider, {
 	type EclipseAppContext,
 } from "../../src/EclipseProvider.js";
+import { EclipseError } from "../../src/errors.js";
 import { defineConfig, LockManager, stores } from "../../src/LockManager.js";
 import { clearLocks, getLocks } from "../../src/services/main.js";
 
@@ -31,23 +32,35 @@ function app(config: Record<string, unknown>): EclipseAppContext & {
 	};
 }
 
+const memoryConfig = () =>
+	defineConfig({ default: "memory", stores: { memory: stores.memory() } });
+
 describe("EclipseProvider", () => {
-	it("falls back to an in-process manager when no config file exists", async () => {
+	it("refuses to boot without config/lock.ts rather than lock in-process only", async () => {
+		// An in-process fallback would let every replica take every lock, and
+		// nothing would say so.
 		clearLocks();
 		const host = app({});
 		const provider = new EclipseProvider(host);
 		provider.register();
-		await provider.boot();
-		expect(getLocks()).toBeInstanceOf(LockManager);
-		expect(await getLocks()?.createLock("k").acquireImmediately()).toBe(true);
-		await provider.shutdown();
+		const error = await provider.boot().catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(EclipseError);
+		if (error instanceof EclipseError) {
+			expect(error.code).toBe("E_ECLIPSE_MISSING_CONFIG");
+		}
+		expect(getLocks()).toBeUndefined();
 	});
 
 	it("refuses a config/lock.ts that is not a lock config", async () => {
 		const host = app({ lock: { driver: "redis" } });
 		const provider = new EclipseProvider(host);
 		provider.register();
-		await expect(provider.boot()).rejects.toThrow(/defineConfig/);
+		const error = await provider.boot().catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(EclipseError);
+		if (error instanceof EclipseError) {
+			expect(error.code).toBe("E_ECLIPSE_INVALID_CONFIG");
+			expect(error.message).toMatch(/defineConfig/);
+		}
 	});
 
 	it("binds both the namespaced and the bare container token", async () => {
@@ -64,11 +77,11 @@ describe("EclipseProvider", () => {
 
 	it("clears the singleton on shutdown, but only while it is still ours", async () => {
 		clearLocks();
-		const first = new EclipseProvider(app({}));
+		const first = new EclipseProvider(app({ lock: memoryConfig() }));
 		first.register();
 		await first.boot();
 
-		const second = new EclipseProvider(app({}));
+		const second = new EclipseProvider(app({ lock: memoryConfig() }));
 		second.register();
 		await second.boot();
 		const secondManager = getLocks();

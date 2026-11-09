@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { UnknownStoreError } from "../../src/errors.js";
+import { EclipseError, UnknownStoreError } from "../../src/errors.js";
+import type { LockConfig } from "../../src/LockManager.js";
 import { defineConfig, LockManager, stores } from "../../src/LockManager.js";
 import type { LockStore } from "../../src/types.js";
 
@@ -31,6 +32,55 @@ describe("LockManager", () => {
 			).toThrow(UnknownStoreError);
 		},
 	);
+
+	describe("config validation", () => {
+		/** What a config file reading an unset env var hands over at run time. */
+		const loose = (value: Record<string, unknown>): LockConfig => {
+			const config: LockConfig = { default: "memory", stores: {} };
+			return Object.assign(config, value);
+		};
+
+		it.each([
+			["no stores", loose({ stores: undefined })],
+			[
+				"an empty default",
+				loose({ default: "", stores: { memory: stores.memory() } }),
+			],
+			[
+				"no default",
+				loose({ default: undefined, stores: { memory: stores.memory() } }),
+			],
+		])("defineConfig refuses a config with %s", (_label, config) => {
+			for (const build of [
+				() => defineConfig(config),
+				() => new LockManager(config),
+			]) {
+				const error = (() => {
+					try {
+						build();
+					} catch (e) {
+						return e;
+					}
+					return undefined;
+				})();
+				expect(error).toBeInstanceOf(EclipseError);
+				if (error instanceof EclipseError) {
+					expect(error.code).toBe("E_ECLIPSE_INVALID_CONFIG");
+				}
+			}
+		});
+
+		it("defineConfig refuses a default that names no declared store", () => {
+			expect(() =>
+				defineConfig({ default: "redis", stores: { memory: stores.memory() } }),
+			).toThrow(UnknownStoreError);
+		});
+
+		it("defineConfig hands a valid config back unchanged", () => {
+			const config = { default: "memory", stores: { memory: stores.memory() } };
+			expect(defineConfig(config)).toBe(config);
+		});
+	});
 
 	it("builds each store once and reuses it", () => {
 		const factory = vi.fn(

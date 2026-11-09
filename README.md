@@ -37,6 +37,12 @@ providers: [() => import("@c9up/eclipse/provider")]
 the first lock — quasar is an optional peer, so an app locking in memory never
 installs it. Pass `{ client }` instead to hand over a client directly.
 
+`ream configure @c9up/eclipse` writes both, sets `LOCK_STORE=redis` and declares
+its validation (`redis` or `memory`). The provider refuses to boot without
+`config/lock.ts`, and `defineConfig` refuses a config whose `default` is unset
+or names no declared store: an in-process fallback would let every replica take
+every lock.
+
 ## Use
 
 ```ts

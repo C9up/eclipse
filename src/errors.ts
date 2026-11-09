@@ -83,6 +83,28 @@ export class InvalidRetryError extends EclipseError {
 	}
 }
 
+/**
+ * Raised when the provider is registered but `config/lock.ts` is missing.
+ *
+ * Falling back to an in-process store would let every replica take every
+ * lock, and nothing would say so.
+ */
+export class MissingConfigError extends EclipseError {
+	constructor() {
+		super(
+			"E_ECLIPSE_MISSING_CONFIG",
+			"Eclipse: config/lock.ts is missing. Run `ream configure @c9up/eclipse`, or export defineConfig({ default, stores }) from it.",
+		);
+	}
+}
+
+/** Raised for a lock config that is not `{ default, stores }`. */
+export class InvalidConfigError extends EclipseError {
+	constructor(reason: string) {
+		super("E_ECLIPSE_INVALID_CONFIG", `Eclipse: ${reason}`);
+	}
+}
+
 /** Raised when a config names a store that does not exist. */
 export class UnknownStoreError extends EclipseError {
 	constructor(name: string, known: readonly string[]) {

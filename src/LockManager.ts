@@ -16,7 +16,7 @@
  */
 
 import { type Duration, resolveMs } from "./duration.js";
-import { UnknownStoreError } from "./errors.js";
+import { InvalidConfigError, UnknownStoreError } from "./errors.js";
 import { assertValidTtl, Lock, resolveRetry } from "./Lock.js";
 import { quasarConnection } from "./quasar.js";
 import { MemoryStore } from "./stores/MemoryStore.js";
@@ -63,10 +63,14 @@ function resolveConfig(options: LockFactoryOptions = {}): ResolvedLockConfig {
 }
 
 /**
- * Type-only helper so a config file gets checked where it is written rather
- * than where it is consumed — the `defineConfig` every ream module exposes.
+ * Check a config where it is written rather than where it is consumed — the
+ * `defineConfig` every ream module exposes.
+ *
+ * `default: env.get('LOCK_STORE')` is `undefined` when the variable is unset,
+ * so the shape is checked at run time too, not only by the compiler.
  */
 export function defineConfig(config: LockConfig): LockConfig {
+	assertValidConfig(config);
 	return config;
 }
 
@@ -160,14 +164,28 @@ function ownStore(
 	return typeof factory === "function" ? factory : undefined;
 }
 
+function assertValidConfig(config: LockConfig): void {
+	const declared: unknown = config.stores;
+	if (typeof declared !== "object" || declared === null) {
+		throw new InvalidConfigError('missing "stores" in the lock config');
+	}
+	const name: unknown = config.default;
+	if (typeof name !== "string" || name === "") {
+		throw new InvalidConfigError(
+			'missing "default" store in the lock config (is LOCK_STORE set?)',
+		);
+	}
+	if (ownStore(config.stores, name) === undefined) {
+		throw new UnknownStoreError(name, Object.keys(config.stores));
+	}
+}
+
 export class LockManager {
 	readonly #config: LockConfig;
 	readonly #built = new Map<string, LockFactory>();
 
 	constructor(config: LockConfig) {
-		if (ownStore(config.stores, config.default) === undefined) {
-			throw new UnknownStoreError(config.default, Object.keys(config.stores));
-		}
+		assertValidConfig(config);
 		this.#config = config;
 	}
 
