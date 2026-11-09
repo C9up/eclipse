@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { LockNotOwnedError, LockStorageError } from "../../src/errors.js";
+import {
+	EclipseError,
+	LockNotOwnedError,
+	LockStorageError,
+} from "../../src/errors.js";
 import {
 	type LockRedisClient,
 	RedisStore,
@@ -111,6 +115,57 @@ describe("RedisStore", () => {
 		await store.save("k", "o", 10);
 		await store.exists("k");
 		expect(resolver).toHaveBeenCalledTimes(1);
+	});
+
+	it("retries a resolver that failed, instead of caching the failure for good", async () => {
+		const redis = client();
+		let calls = 0;
+		const store = new RedisStore(async () => {
+			calls++;
+			if (calls === 1) throw new Error("connection 'main' not registered yet");
+			return redis;
+		});
+		await expect(store.save("k", "o", 10)).rejects.toBeInstanceOf(
+			LockStorageError,
+		);
+		expect(await store.save("k", "o", 10)).toBe(true);
+		await store.exists("k");
+		// Kept once it succeeded.
+		expect(calls).toBe(2);
+	});
+
+	it("fails every command waiting on the same failed resolution, then retries", async () => {
+		const redis = client();
+		let calls = 0;
+		let fail = true;
+		const store = new RedisStore(async () => {
+			calls++;
+			await Promise.resolve();
+			if (fail) throw new Error("not yet");
+			return redis;
+		});
+		const results = await Promise.allSettled([
+			store.save("a", "o", 10),
+			store.save("b", "o", 10),
+		]);
+		expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
+		// Concurrent commands share one resolution rather than racing N of them.
+		expect(calls).toBe(1);
+		fail = false;
+		expect(await store.save("a", "o", 10)).toBe(true);
+		expect(calls).toBe(2);
+	});
+
+	it("lets a configuration error from the resolver keep its own code", async () => {
+		const store = new RedisStore(async () => {
+			throw new EclipseError("E_ECLIPSE_QUASAR_MISSING", "not installed");
+		});
+		const error = await store.save("k", "o", 10).catch((e: unknown) => e);
+		expect(error).not.toBeInstanceOf(LockStorageError);
+		expect(error).toBeInstanceOf(EclipseError);
+		if (error instanceof EclipseError) {
+			expect(error.code).toBe("E_ECLIPSE_QUASAR_MISSING");
+		}
 	});
 
 	it("reports a store failure as a storage error, not a raw driver error", async () => {

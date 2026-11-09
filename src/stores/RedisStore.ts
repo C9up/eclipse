@@ -10,7 +10,11 @@
  * without eclipse depending on quasar, which is an optional peer.
  */
 
-import { LockNotOwnedError, LockStorageError } from "../errors.js";
+import {
+	EclipseError,
+	LockNotOwnedError,
+	LockStorageError,
+} from "../errors.js";
 import type { LockStore } from "../types.js";
 
 /** The commands this store issues. Any client answering them will do. */
@@ -74,11 +78,25 @@ export class RedisStore implements LockStore {
 		this.#prefix = options.prefix ?? "eclipse:lock:";
 	}
 
-	/** The client, resolved once and kept. */
+	/**
+	 * The client, resolved once and kept — once it SUCCEEDED.
+	 *
+	 * A failed resolution is forgotten, so the next command asks again: a lock
+	 * taken before the connection is registered, or during a transient import
+	 * failure, must not disable every lock until the process restarts.
+	 * Commands issued while one resolution is pending share it.
+	 */
 	#client(): Promise<LockRedisClient> {
-		this.#resolved ??= Promise.resolve(
-			typeof this.#source === "function" ? this.#source() : this.#source,
-		);
+		if (this.#resolved === undefined) {
+			const source = this.#source;
+			const pending = Promise.resolve().then(() =>
+				typeof source === "function" ? source() : source,
+			);
+			this.#resolved = pending;
+			pending.catch(() => {
+				if (this.#resolved === pending) this.#resolved = undefined;
+			});
+		}
 		return this.#resolved;
 	}
 
@@ -92,13 +110,14 @@ export class RedisStore implements LockStore {
 	 * A raw ioredis error surfacing from `lock.run()` reads as an application
 	 * bug; `E_LOCK_STORAGE_ERROR` says the lock layer could not reach its
 	 * store, which is the fact the caller needs to decide whether to proceed
-	 * unlocked or fail.
+	 * unlocked or fail. An eclipse error already says what went wrong — a lost
+	 * lease, or a resolver reporting a missing quasar — and keeps its code.
 	 */
 	async #issue<T>(operation: string, run: () => Promise<T>): Promise<T> {
 		try {
 			return await run();
 		} catch (cause) {
-			if (cause instanceof LockNotOwnedError) throw cause;
+			if (cause instanceof EclipseError) throw cause;
 			throw new LockStorageError(operation, cause);
 		}
 	}
