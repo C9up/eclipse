@@ -95,6 +95,12 @@ export default defineConfig({ lock: schedulerBackend(() => locks) })
 two-method contract and eclipse satisfies it, so the core works with no lock
 package installed.
 
+The lease is renewed every third of its TTL while the task runs, so a task
+longer than the TTL never runs on two instances at once; the TTL only bounds how
+long the name stays taken after an instance dies. `ttl` overrides the single TTL
+the scheduler passes for every task, and `onLeaseLost(name, error)` is told when
+a running task's lease was taken by someone else (a process warning otherwise).
+
 ## Safety
 
 Every lease carries a random owner token, and release and extend compare it
