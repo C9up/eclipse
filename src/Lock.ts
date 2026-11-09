@@ -304,7 +304,10 @@ export class Lock {
 		const ms = resolveMs(duration, this.#ttl);
 		if (ms === null) throw new InvalidTtlError(ms);
 		assertValidTtl(ms);
+		// Timed from before the call: the store applied the expiry before its
+		// reply came back, so the local estimate must err short, never long.
+		const now = Date.now();
 		await this.#store.extend(this.#key, this.#owner, ms);
-		this.#expirationTime = Date.now() + ms;
+		this.#expirationTime = now + ms;
 	}
 }

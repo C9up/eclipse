@@ -237,6 +237,36 @@ describe("Lock", () => {
 		await lock.release();
 	});
 
+	it("extend dates the new expiry from before the round trip, never after", async () => {
+		// The server applied the new expiry before its reply travelled back,
+		// so timing it from the reply would claim time the server never granted.
+		vi.useFakeTimers();
+		try {
+			const inner = new MemoryStore();
+			const store: LockStore = {
+				save: (k, o, t) => inner.save(k, o, t),
+				delete: (k, o) => inner.delete(k, o),
+				forceDelete: (k) => inner.forceDelete(k),
+				exists: (k) => inner.exists(k),
+				extend: async (k, o, d) => {
+					await inner.extend(k, o, d);
+					await new Promise((resolve) => setTimeout(resolve, 300));
+				},
+			};
+			const lock = new Lock("k", store, config(), undefined, 1_000);
+			await lock.acquireImmediately();
+			const extended = lock.extend(1_000);
+			await vi.advanceTimersByTimeAsync(300);
+			await extended;
+			expect(lock.getRemainingTime()).toBeLessThanOrEqual(700);
+			await vi.advanceTimersByTimeAsync(750);
+			expect(await inner.exists("k")).toBe(false);
+			expect(lock.isExpired()).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("extend refuses a duration that bounds nothing", async () => {
 		const lock = new Lock("k", new MemoryStore(), config());
 		await lock.acquireImmediately();
