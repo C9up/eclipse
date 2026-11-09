@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { InvalidTtlError, LockNotOwnedError } from "../../src/errors.js";
+import {
+	InvalidTtlError,
+	LockNotOwnedError,
+	LockStorageError,
+} from "../../src/errors.js";
 import { Lock } from "../../src/Lock.js";
 import { LockManager, stores } from "../../src/LockManager.js";
 import { MemoryStore } from "../../src/stores/MemoryStore.js";
+import { RedisStore } from "../../src/stores/RedisStore.js";
 import type { LockStore, ResolvedLockConfig } from "../../src/types.js";
 
 const config = (
@@ -89,6 +94,87 @@ describe("Lock", () => {
 				throw new Error("the real failure");
 			}),
 		).rejects.toThrow("the real failure");
+	});
+
+	it("run reports a lease lost while the work ran, instead of a clean [true, result]", async () => {
+		// The lease lapsed mid-work and another holder took the key: both ran at
+		// once. Answering [true, "A"] would hide the one fact a lock exists to
+		// report.
+		const store = new MemoryStore();
+		const first = new Lock("job", store, config(), undefined, 20);
+		const second = new Lock("job", store, config(), undefined, 5_000);
+		const outcome = first.run(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 40));
+			expect(await second.acquireImmediately()).toBe(true);
+			return "A";
+		});
+		await expect(outcome).rejects.toBeInstanceOf(LockNotOwnedError);
+		// The failed release did not touch the second holder's lease.
+		expect(await store.exists("job")).toBe(true);
+		await second.release();
+	});
+
+	it("runImmediately reports a lost lease the same way", async () => {
+		const store = new MemoryStore();
+		const lock = new Lock("job", store, config(), undefined, 20);
+		await expect(
+			lock.runImmediately(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 40));
+				return "A";
+			}),
+		).rejects.toBeInstanceOf(LockNotOwnedError);
+	});
+
+	it("run reports a lost lease on a Redis store, whose release script answered 0", async () => {
+		const redis = {
+			set: vi.fn().mockResolvedValue("OK"),
+			eval: vi.fn().mockResolvedValue(0),
+			del: vi.fn().mockResolvedValue(1),
+			exists: vi.fn().mockResolvedValue(1),
+		};
+		const lock = new Lock("job", new RedisStore(redis), config());
+		await expect(lock.run(async () => "A")).rejects.toBeInstanceOf(
+			LockNotOwnedError,
+		);
+	});
+
+	it("keeps the callback's own error when the release then fails in the store", async () => {
+		const failure = new Error("invoice generation failed: duplicate key");
+		const store: LockStore = {
+			save: () => Promise.resolve(true),
+			delete: () =>
+				Promise.reject(new LockStorageError("delete", new Error("ECONNRESET"))),
+			forceDelete: () => Promise.resolve(),
+			exists: () => Promise.resolve(true),
+			extend: () => Promise.resolve(),
+		};
+		const lock = new Lock("k", store, config());
+		const thrown = await lock
+			.run(async () => {
+				throw failure;
+			})
+			.catch((error: unknown) => error);
+		expect(thrown).toBe(failure);
+		const thrownImmediately = await lock
+			.runImmediately(async () => {
+				throw failure;
+			})
+			.catch((error: unknown) => error);
+		expect(thrownImmediately).toBe(failure);
+	});
+
+	it("reports a store failure on release when the work itself succeeded", async () => {
+		const store: LockStore = {
+			save: () => Promise.resolve(true),
+			delete: () =>
+				Promise.reject(new LockStorageError("delete", new Error("ECONNRESET"))),
+			forceDelete: () => Promise.resolve(),
+			exists: () => Promise.resolve(true),
+			extend: () => Promise.resolve(),
+		};
+		await expect(
+			new Lock("k", store, config()).run(async () => "done"),
+		).rejects.toBeInstanceOf(LockStorageError);
 	});
 
 	it("a direct release still reports a lease that is gone", async () => {

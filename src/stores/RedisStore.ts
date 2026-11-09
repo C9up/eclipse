@@ -133,7 +133,7 @@ export class RedisStore implements LockStore {
 			// an error — the lease simply lapsed after the work was done — but
 			// eclipse cannot tell the two apart from this reply alone, and the
 			// safe reading of "I could not release what I thought I held" is to
-			// say so. `Lock.run` absorbs it; a direct `release()` reports it.
+			// say so.
 			if (Number(removed) === 0) throw new LockNotOwnedError(key);
 		});
 	}

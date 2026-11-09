@@ -104,8 +104,10 @@ a *different* instance has since taken, freeing the name while work is still
 running under it.
 
 Losing a lease mid-work is reported as `E_LOCK_NOT_OWNED`, uniformly across
-stores. `Lock.run` absorbs it on the way out so it cannot replace whatever your
-callback was throwing; a direct `release()` reports it.
+stores: `Lock.run` rejects with it when the callback succeeded but the lease
+lapsed while it ran, since another holder may have run at the same time. When
+the callback itself threw, `Lock.run` rethrows that error unchanged and a failed
+release does not replace it.
 
 ## Testing
 

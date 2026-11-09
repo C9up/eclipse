@@ -75,8 +75,8 @@ export class MemoryStore implements LockStore {
 		// Unified here on the strict reading, not the lenient one: both cases
 		// mean the caller no longer holds what it thought it held, and work
 		// that ran past its own lease may have overlapped another holder. That
-		// is worth reporting, not swallowing. `Lock.run` absorbs it so the
-		// ergonomic path stays quiet; a direct `release()` reports it.
+		// is worth reporting, not swallowing — `Lock.run` raises it too, unless
+		// the work itself threw.
 		if (entry === undefined || entry.owner !== owner) {
 			return Promise.reject(new LockNotOwnedError(key));
 		}

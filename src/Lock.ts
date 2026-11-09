@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type Duration, resolveMs } from "./duration.js";
-import { InvalidTtlError, LockNotOwnedError } from "./errors.js";
+import { InvalidTtlError } from "./errors.js";
 import type {
 	LockAcquireOptions,
 	LockStore,
@@ -171,14 +171,12 @@ export class Lock {
 	 * @returns `[true, result]` when it ran, `[false, null]` when the lock
 	 *   could not be taken. The tuple is upstream's shape, and it is what lets
 	 *   a caller tell "ran and returned undefined" from "never ran".
+	 * @throws `E_LOCK_NOT_OWNED` when the callback succeeded but the lease
+	 *   lapsed while it ran.
 	 */
 	async run<T>(callback: () => Promise<T>): Promise<[true, T] | [false, null]> {
 		if (!(await this.acquire())) return [false, null];
-		try {
-			return [true, await callback()];
-		} finally {
-			await this.#releaseAfterWork();
-		}
+		return this.#runHeld(callback);
 	}
 
 	/** {@link run}, but without waiting for a lock someone else holds. */
@@ -186,40 +184,39 @@ export class Lock {
 		callback: () => Promise<T>,
 	): Promise<[true, T] | [false, null]> {
 		if (!(await this.acquireImmediately())) return [false, null];
-		try {
-			return [true, await callback()];
-		} finally {
-			await this.#releaseAfterWork();
-		}
+		return this.#runHeld(callback);
 	}
 
 	/**
-	 * Release on the way out of `run`.
+	 * Run the work under a lease already held, then release it.
 	 *
-	 * NAMED DEVIATION from upstream, which calls `release()` directly in the
-	 * `finally`. Work that outlives its own TTL loses the lease, and releasing
-	 * it then raises — from a `finally`, which REPLACES whatever the callback
-	 * was throwing. The original failure disappears and the caller is told the
-	 * lock was not owned, which is the less useful of the two facts and points
-	 * at the wrong line.
+	 * When the work succeeded, a failed release is raised as upstream raises
+	 * it: `E_LOCK_NOT_OWNED` there means the lease lapsed mid-work and another
+	 * holder may have run at the same time, the one fact a lock exists to
+	 * report.
 	 *
-	 * Losing the lease mid-work is still a real problem; it is just not this
-	 * method's to report. Give long work a TTL that covers it, or call
-	 * {@link extend} while it runs.
+	 * NAMED DEVIATION from upstream, which releases in a `finally`: when the
+	 * work threw, a failed release (lost lease or store failure) would REPLACE
+	 * the work's own error, which is the more useful of the two and points at
+	 * the right line. That error is rethrown unchanged instead, so a caller's
+	 * `instanceof` and `code` checks still match it.
 	 */
-	async #releaseAfterWork(): Promise<void> {
+	async #runHeld<T>(callback: () => Promise<T>): Promise<[true, T]> {
+		let result: T;
 		try {
-			await this.release();
+			result = await callback();
 		} catch (error) {
-			if (error instanceof LockNotOwnedError) return;
+			await this.release().catch(() => undefined);
 			throw error;
 		}
+		await this.release();
+		return [true, result];
 	}
 
 	/**
 	 * Release the lease.
 	 *
-	 * @throws {LockNotOwnedError} when this holder no longer owns it.
+	 * @throws `E_LOCK_NOT_OWNED` when this holder no longer owns it.
 	 */
 	async release(): Promise<void> {
 		await this.#store.delete(this.#key, this.#owner);
@@ -239,7 +236,7 @@ export class Lock {
 	 * worst case — a lease sized for the worst case is also how long the lock
 	 * stays stuck after a crash.
 	 *
-	 * @throws {LockNotOwnedError} when this holder no longer owns it.
+	 * @throws `E_LOCK_NOT_OWNED` when this holder no longer owns it.
 	 */
 	async extend(duration?: Duration): Promise<void> {
 		const ms = resolveMs(duration, this.#ttl);
