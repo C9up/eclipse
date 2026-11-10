@@ -12,7 +12,7 @@
  *     .run(async () => generateInvoices())
  */
 
-import type { LockManager } from "../LockManager.js";
+import { LockManager, stores } from "../LockManager.js";
 
 let instance: LockManager | undefined;
 
@@ -34,7 +34,17 @@ export function clearLocks(): void {
 	instance = undefined;
 }
 
-const locks: LockManager = new Proxy({} as LockManager, {
+/**
+ * The proxy's target, never read: every access is forwarded to the bound
+ * manager. A real (idle) manager types the proxy as one without a cast, and
+ * keeps `locks instanceof LockManager` true. Building it opens nothing.
+ */
+const placeholder = new LockManager({
+	default: "memory",
+	stores: { memory: stores.memory() },
+});
+
+const locks: LockManager = new Proxy(placeholder, {
 	get(_target, prop) {
 		// A module loader inspects what it imports before anyone uses it: it
 		// reads `then` to decide whether the namespace is thenable, and various

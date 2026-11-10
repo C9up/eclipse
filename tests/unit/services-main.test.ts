@@ -17,6 +17,11 @@ describe("services/main", () => {
 		expect(Reflect.get(locks, Symbol.iterator)).toBeUndefined();
 	});
 
+	it("stands in for a LockManager, so instanceof checks hold before boot", () => {
+		clearLocks();
+		expect(locks).toBeInstanceOf(LockManager);
+	});
+
 	it("reports clearly when it is used before anything bound it", () => {
 		clearLocks();
 		expect(() => locks.createLock("k")).toThrow(/before EclipseProvider.boot/);
