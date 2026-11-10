@@ -18,18 +18,24 @@ interface Entry {
 }
 
 /**
- * How many entries may accumulate before a save also sweeps the expired ones.
+ * How many entries may accumulate before a save first sweeps the expired ones.
  *
  * There is no timer here on purpose: a store that owns one keeps the process
  * alive and has to be shut down, and every package in the cohort has left one
  * behind at least once. Sweeping on write instead costs nothing until the map
  * is actually large, and bounds a workload that locks per user or per job id —
  * where lazy expiry alone would keep every key ever seen.
+ *
+ * After each sweep the next one waits until the map has doubled what
+ * survived, so a map full of LIVE keys is not rescanned on every save: the
+ * scans stay O(1) per write on average and the map stays within twice its
+ * live set.
  */
 const SWEEP_THRESHOLD = 1_000;
 
 export class MemoryStore implements LockStore {
 	readonly #entries = new Map<string, Entry>();
+	#nextSweepAt = SWEEP_THRESHOLD;
 
 	/** The live entry for `key`, treating an elapsed lease as absent. */
 	#live(key: string): Entry | undefined {
@@ -49,10 +55,11 @@ export class MemoryStore implements LockStore {
 				this.#entries.delete(key);
 			}
 		}
+		this.#nextSweepAt = Math.max(SWEEP_THRESHOLD, this.#entries.size * 2);
 	}
 
 	save(key: string, owner: string, ttl: number | null): Promise<boolean> {
-		if (this.#entries.size >= SWEEP_THRESHOLD) this.#sweep();
+		if (this.#entries.size >= this.#nextSweepAt) this.#sweep();
 		if (this.#live(key) !== undefined) return Promise.resolve(false);
 		this.#entries.set(key, {
 			owner,

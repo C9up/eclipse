@@ -84,22 +84,61 @@ describe("MemoryStore", () => {
 		}
 	});
 
-	it("does not grow without bound when every key is used once", async () => {
-		vi.useFakeTimers();
-		try {
-			const store = new MemoryStore();
-			for (let i = 0; i < 1_200; i++) await store.save(`k:${i}`, "o", 10);
-			vi.advanceTimersByTime(11);
-			// The sweep runs on write once the map is large; one more save is
-			// enough to collect the 1200 lapsed entries.
-			await store.save("trigger", "o", 1_000);
-			let live = 0;
-			for (let i = 0; i < 1_200; i++) {
-				if (await store.exists(`k:${i}`)) live++;
+	describe("sweeping", () => {
+		/**
+		 * The size of every large map iterated while `run` executes. A sweep is
+		 * the only full scan the store does, so this counts sweeps and shows
+		 * how big the map was when each one ran.
+		 */
+		async function scans(run: () => Promise<void>): Promise<number[]> {
+			const sizes: number[] = [];
+			const iterate = Map.prototype[Symbol.iterator];
+			const spy = vi
+				.spyOn(Map.prototype, Symbol.iterator)
+				.mockImplementation(function (this: Map<unknown, unknown>) {
+					if (this.size >= 500) sizes.push(this.size);
+					return iterate.call(this);
+				});
+			try {
+				await run();
+			} finally {
+				spy.mockRestore();
 			}
-			expect(live).toBe(0);
-		} finally {
-			vi.useRealTimers();
+			return sizes;
 		}
+
+		it("does not scan the whole map on every save once it holds many live keys", async () => {
+			const store = new MemoryStore();
+			for (let i = 0; i < 10_000; i++) {
+				await store.save(`live:${i}`, "o", 3_600_000);
+			}
+			const sizes = await scans(async () => {
+				for (let i = 0; i < 1_000; i++) {
+					await store.save(`new:${i}`, "o", 3_600_000);
+				}
+			});
+			expect(sizes.length).toBeLessThanOrEqual(1);
+		});
+
+		it("still reclaims lapsed keys as the map grows", async () => {
+			vi.useFakeTimers();
+			try {
+				const store = new MemoryStore();
+				for (let i = 0; i < 1_500; i++) await store.save(`old:${i}`, "o", 10);
+				vi.advanceTimersByTime(11);
+				const sizes = await scans(async () => {
+					for (let i = 0; i < 1_200; i++) {
+						await store.save(`new:${i}`, "o", 3_600_000);
+					}
+				});
+				// One sweep collected the 1500 lapsed keys; had it not, the map
+				// would hold 2700 by the end, and the next scan would see them.
+				expect(sizes.length).toBeGreaterThan(0);
+				expect(Math.max(...sizes)).toBeLessThanOrEqual(2_000);
+				expect(sizes.at(-1)).toBeLessThan(1_500);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
 	});
 });
