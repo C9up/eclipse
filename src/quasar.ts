@@ -10,7 +10,10 @@
 
 import { EclipseError } from "./errors.js";
 import type { LockRedisClient } from "./stores/RedisStore.js";
-import { quasarConnection as loadQuasarConnection } from "./vendor/quasarConnection.js";
+import {
+	hasCommands,
+	quasarConnection as loadQuasarConnection,
+} from "./vendor/quasarConnection.js";
 
 /**
  * The commands this store actually issues.
@@ -22,6 +25,13 @@ import { quasarConnection as loadQuasarConnection } from "./vendor/quasarConnect
 const REQUIRED = ["set", "eval", "del", "exists"] as const;
 
 /**
+ * The connection is handed over only once it carries every command above.
+ */
+function isLockRedisClient(value: unknown): value is LockRedisClient {
+	return hasCommands(value, REQUIRED);
+}
+
+/**
  * A resolver for `stores.redis({ connection })` — quasar is loaded on the
  * first lock, not at config time.
  */
@@ -29,10 +39,11 @@ export function quasarConnection(
 	name?: string,
 ): () => Promise<LockRedisClient> {
 	return async () =>
-		loadQuasarConnection<LockRedisClient>({
+		loadQuasarConnection({
 			pkg: "eclipse",
 			name,
 			required: REQUIRED,
+			isConnection: isLockRedisClient,
 			what: "the lock store",
 			alternative: "or pass a client directly: stores.redis({ client })",
 			raise: (reason, message, cause) =>

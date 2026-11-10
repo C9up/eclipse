@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EclipseError } from "../../src/errors.js";
 
 const loadQuasarConnection = vi.hoisted(() => vi.fn());
-vi.mock("../../src/vendor/quasarConnection.js", () => ({
+vi.mock("../../src/vendor/quasarConnection.js", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("../../src/vendor/quasarConnection.js")
+	>()),
 	quasarConnection: loadQuasarConnection,
 }));
 
@@ -28,6 +31,19 @@ describe("quasar bridge", () => {
 		expect(request?.required).toEqual(
 			expect.arrayContaining(["set", "eval", "del", "exists"]),
 		);
+		// And the guard it hands over refuses one that lacks it.
+		const command = () => undefined;
+		expect(
+			request?.isConnection({ set: command, del: command, exists: command }),
+		).toBe(false);
+		expect(
+			request?.isConnection({
+				set: command,
+				eval: command,
+				del: command,
+				exists: command,
+			}),
+		).toBe(true);
 	});
 
 	it("does not reach for quasar at config time, only on the first lock", () => {
