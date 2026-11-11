@@ -13,6 +13,8 @@
  * here rather than converting silently somewhere in the middle.
  */
 
+import { InvalidDurationError } from "./errors.js";
+
 /**
  * A lock duration:
  * - `number` — milliseconds (eclipse-native; see note above)
@@ -21,53 +23,58 @@
  */
 export type Duration = number | string | null;
 
-const UNIT_MS: Record<string, number> = {
-	ms: 1,
-	msec: 1,
-	msecs: 1,
-	millisecond: 1,
-	milliseconds: 1,
-	s: 1_000,
-	sec: 1_000,
-	secs: 1_000,
-	second: 1_000,
-	seconds: 1_000,
-	m: 60_000,
-	min: 60_000,
-	mins: 60_000,
-	minute: 60_000,
-	minutes: 60_000,
-	h: 3_600_000,
-	hr: 3_600_000,
-	hrs: 3_600_000,
-	hour: 3_600_000,
-	hours: 3_600_000,
-	d: 86_400_000,
-	day: 86_400_000,
-	days: 86_400_000,
-	w: 604_800_000,
-	week: 604_800_000,
-	weeks: 604_800_000,
-};
+/** A `Map`, so a unit is only ever one of these: `"constructor"` is no unit. */
+const UNIT_MS: ReadonlyMap<string, number> = new Map(
+	Object.entries({
+		ms: 1,
+		msec: 1,
+		msecs: 1,
+		millisecond: 1,
+		milliseconds: 1,
+		s: 1_000,
+		sec: 1_000,
+		secs: 1_000,
+		second: 1_000,
+		seconds: 1_000,
+		m: 60_000,
+		min: 60_000,
+		mins: 60_000,
+		minute: 60_000,
+		minutes: 60_000,
+		h: 3_600_000,
+		hr: 3_600_000,
+		hrs: 3_600_000,
+		hour: 3_600_000,
+		hours: 3_600_000,
+		d: 86_400_000,
+		day: 86_400_000,
+		days: 86_400_000,
+		w: 604_800_000,
+		week: 604_800_000,
+		weeks: 604_800_000,
+	}),
+);
 
 const DURATION_RE = /^\s*(-?\d+(?:\.\d+)?)\s*([a-z]+)?\s*$/i;
 
 /**
  * Parse a human duration string (`'30s'`, `'5m'`, `'500ms'`) into milliseconds.
  * A unit-less numeric string is interpreted as milliseconds.
+ *
+ * @throws `E_ECLIPSE_INVALID_DURATION` for anything else.
  */
 export function parseDuration(value: string): number {
 	const match = DURATION_RE.exec(value);
 	if (!match) {
-		throw new TypeError(`Eclipse: invalid duration string "${value}"`);
+		throw new InvalidDurationError(`invalid duration string "${value}"`);
 	}
 	const amount = Number(match[1]);
 	const unit = match[2]?.toLowerCase();
 	if (unit === undefined) return amount;
-	const factor = UNIT_MS[unit];
+	const factor = UNIT_MS.get(unit);
 	if (factor === undefined) {
-		throw new TypeError(
-			`Eclipse: unknown duration unit "${unit}" in "${value}"`,
+		throw new InvalidDurationError(
+			`unknown duration unit "${unit}" in "${value}"`,
 		);
 	}
 	return amount * factor;

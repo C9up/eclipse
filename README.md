@@ -84,7 +84,8 @@ if (await lock.acquireImmediately()) {
 
 A bare number is **milliseconds** (`@c9up/echo` is seconds-native; each is
 native to its own layer). Strings take the usual units: `"500ms"`, `"30s"`,
-`"5m"`, `"2h"`. `null` never expires.
+`"5m"`, `"2h"`. `null` never expires. Any other string, an unknown unit
+included, throws `InvalidDurationError` (`E_ECLIPSE_INVALID_DURATION`).
 
 ## With the scheduler
 

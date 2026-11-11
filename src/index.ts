@@ -23,6 +23,7 @@ export { type Duration, parseDuration, resolveMs } from "./duration.js";
 export {
 	EclipseError,
 	InvalidConfigError,
+	InvalidDurationError,
 	InvalidRetryError,
 	InvalidTtlError,
 	LockNotOwnedError,

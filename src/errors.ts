@@ -84,6 +84,18 @@ export class InvalidRetryError extends EclipseError {
 }
 
 /**
+ * Raised for a duration string that is not a number with a known unit.
+ *
+ * Upstream throws an uncoded error for the same input; this one carries the
+ * namespace, so a caller tells a mistyped `"5mins"` from a store failure.
+ */
+export class InvalidDurationError extends EclipseError {
+	constructor(reason: string) {
+		super("E_ECLIPSE_INVALID_DURATION", `Eclipse: ${reason}`);
+	}
+}
+
+/**
  * Raised when the provider is registered but `config/lock.ts` is missing.
  *
  * Falling back to an in-process store would let every replica take every
