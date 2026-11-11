@@ -208,14 +208,27 @@ describe("Lock", () => {
 	it("respects the retry timeout instead of overshooting by a full delay", async () => {
 		// Upstream sleeps the whole delay before re-checking the budget, so a
 		// 40ms timeout with a 200ms delay returns after ~200ms.
-		const store = new MemoryStore();
-		await new Lock("k", store, config()).acquireImmediately();
-		const waiter = new Lock("k", store, config());
-		const started = Date.now();
-		expect(await waiter.acquire({ retry: { delay: 200, timeout: 40 } })).toBe(
-			false,
-		);
-		expect(Date.now() - started).toBeLessThan(150);
+		// Fake timers: the answer is due once 40ms of timer time have run,
+		// whatever a stalled worker does to the wall clock.
+		vi.useFakeTimers();
+		try {
+			const store = new MemoryStore();
+			await new Lock("k", store, config()).acquireImmediately();
+			const waiter = new Lock("k", store, config());
+			let result: boolean | undefined;
+			const acquiring = waiter
+				.acquire({ retry: { delay: 200, timeout: 40 } })
+				.then((acquired) => {
+					result = acquired;
+				});
+			await vi.advanceTimersByTimeAsync(39);
+			expect(result).toBe(undefined);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(result).toBe(false);
+			await acquiring;
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("treats timeout: 0 as 'do not wait', not 'wait forever'", async () => {

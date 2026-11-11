@@ -6,7 +6,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { setTimeout as sleep } from "node:timers/promises";
 import { type Duration, resolveMs } from "./duration.js";
 import { InvalidRetryError, InvalidTtlError } from "./errors.js";
 import type {
@@ -22,6 +21,16 @@ import type {
  * the wait between attempts into a tight poll of the store.
  */
 const MAX_DELAY_MS = 2_147_483_647;
+
+/**
+ * The wait between attempts, on the global timer the retry deadline's
+ * `Date.now()` is read beside: a faked clock drives both together, where
+ * `node:timers/promises` would keep sleeping in real time while the deadline
+ * never moved.
+ */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Reject a TTL that cannot bound anything.
