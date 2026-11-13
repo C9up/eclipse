@@ -90,11 +90,14 @@ export function resolveRetry(
 		retry?.timeout === undefined
 			? base.timeout
 			: (resolveMs(retry.timeout, null) ?? undefined);
-	if (timeout !== undefined && (Number.isNaN(timeout) || timeout < 0)) {
+	// `Infinity` is refused, not read as "no deadline": that is spelled `null`
+	// (or left out), and an infinite number is what a division by an unset
+	// setting produces, which would silently remove the bound.
+	if (timeout !== undefined && !(Number.isFinite(timeout) && timeout >= 0)) {
 		throw new InvalidRetryError(
 			"timeout",
 			timeout,
-			"a duration of 0 or more, or null for no deadline",
+			"a finite duration of 0 or more, or null for no deadline",
 		);
 	}
 	return { attempts, delay, timeout };

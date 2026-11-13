@@ -16,6 +16,8 @@ const invalidRetries: Array<[string, RetryConfig]> = [
 	["timeout: NaN", { timeout: Number.NaN }],
 	["timeout: negative", { timeout: -1 }],
 	["timeout: negative string", { timeout: "-5s" }],
+	["timeout: Infinity", { timeout: Number.POSITIVE_INFINITY }],
+	["timeout: -Infinity", { timeout: Number.NEGATIVE_INFINITY }],
 	["delay: NaN", { delay: Number.NaN }],
 	["delay: negative", { delay: -5 }],
 	["delay: Infinity", { delay: Number.POSITIVE_INFINITY }],
@@ -75,18 +77,13 @@ describe("retry option validation", () => {
 		expect(save).toHaveBeenCalledTimes(1);
 	});
 
-	it("reads timeout: Infinity or null as no deadline", async () => {
+	it("reads timeout: null as no deadline", async () => {
 		const { store, save } = busyStore();
 		const lock = new LockFactory(store).createLock("busy");
 		expect(
-			await lock.acquire({
-				retry: { attempts: 2, delay: 0, timeout: Number.POSITIVE_INFINITY },
-			}),
-		).toBe(false);
-		expect(
 			await lock.acquire({ retry: { attempts: 2, delay: 0, timeout: null } }),
 		).toBe(false);
-		expect(save).toHaveBeenCalledTimes(4);
+		expect(save).toHaveBeenCalledTimes(2);
 	});
 
 	it("accepts a finite attempt count and a human-duration timeout", async () => {
