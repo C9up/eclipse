@@ -16,6 +16,7 @@ import {
 	LockStorageError,
 } from "../errors.js";
 import type { LockStore } from "../types.js";
+import { hasEnded } from "../vendor/quasarConnection.js";
 
 /** The commands this store issues. Any client answering them will do. */
 export interface LockRedisClient {
@@ -72,6 +73,8 @@ export class RedisStore implements LockStore {
 	readonly #source: LockRedisResolver;
 	readonly #prefix: string;
 	#resolved: Promise<LockRedisClient> | undefined;
+	/** What {@link #resolved} settled to, so its state can be read. */
+	#settled: LockRedisClient | undefined;
 
 	constructor(client: LockRedisResolver, options: RedisStoreOptions = {}) {
 		this.#source = client;
@@ -85,13 +88,27 @@ export class RedisStore implements LockStore {
 	 * taken before the connection is registered, or during a transient import
 	 * failure, must not disable every lock until the process restarts.
 	 * Commands issued while one resolution is pending share it.
+	 *
+	 * A resolved client that has ended for good is forgotten too: quasar
+	 * retires a connection whose retry strategy gave up and hands out a fresh
+	 * one, and keeping the dead client failed every lock — and skipped every
+	 * scheduled task — until restart. NAMED DEVIATION, better than upstream,
+	 * whose lock store captures `ioConnection` once. A client handed in
+	 * directly is kept whatever its state.
 	 */
 	#client(): Promise<LockRedisClient> {
+		if (typeof this.#source === "function" && hasEnded(this.#settled)) {
+			this.#resolved = undefined;
+			this.#settled = undefined;
+		}
 		if (this.#resolved === undefined) {
 			const source = this.#source;
-			const pending = Promise.resolve().then(() =>
-				typeof source === "function" ? source() : source,
-			);
+			const pending = Promise.resolve()
+				.then(() => (typeof source === "function" ? source() : source))
+				.then((client) => {
+					if (this.#resolved === pending) this.#settled = client;
+					return client;
+				});
 			this.#resolved = pending;
 			pending.catch(() => {
 				if (this.#resolved === pending) this.#resolved = undefined;

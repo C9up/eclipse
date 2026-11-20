@@ -117,6 +117,42 @@ describe("RedisStore", () => {
 		expect(resolver).toHaveBeenCalledTimes(1);
 	});
 
+	// Quasar retires a connection whose retry strategy gave up and hands out a
+	// fresh one. Keeping the dead client made every lock fail with
+	// E_LOCK_STORAGE_ERROR, and every scheduled task skip, until restart.
+	it("resolves again once the client it kept has ended for good", async () => {
+		const first = { ...client(), status: "ready" };
+		const second = { ...client(), status: "ready" };
+		const resolver = vi
+			.fn<() => LockRedisClient>()
+			.mockReturnValueOnce(first)
+			.mockReturnValueOnce(second);
+		const store = new RedisStore(resolver);
+
+		await store.exists("k");
+		first.status = "end";
+		await store.exists("k");
+		await store.exists("k");
+
+		expect(resolver).toHaveBeenCalledTimes(2);
+		expect(first.exists).toHaveBeenCalledOnce();
+		expect(second.exists).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps a client that closed but reconnects by itself, and one handed in directly", async () => {
+		const resolved = { ...client(), status: "ready" };
+		const resolver = vi.fn(() => resolved);
+		const store = new RedisStore(resolver);
+		await store.exists("k");
+		resolved.status = "close";
+		await store.exists("k");
+		expect(resolver).toHaveBeenCalledOnce();
+
+		const direct = { ...client(), status: "end" };
+		await new RedisStore(direct).exists("k");
+		expect(direct.exists).toHaveBeenCalledOnce();
+	});
+
 	it("retries a resolver that failed, instead of caching the failure for good", async () => {
 		const redis = client();
 		let calls = 0;
