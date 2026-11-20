@@ -40,6 +40,13 @@ export {
 	type StoreFactory,
 	stores,
 } from "./LockManager.js";
+export {
+	DatabaseStore,
+	type DatabaseStoreOptions,
+	type LockDatabase,
+	type LockDatabaseSource,
+	type LockRow,
+} from "./stores/DatabaseStore.js";
 export { MemoryStore } from "./stores/MemoryStore.js";
 export {
 	type LockRedisClient,

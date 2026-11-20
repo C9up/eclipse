@@ -37,6 +37,18 @@ providers: [() => import("@c9up/eclipse/provider")]
 the first lock — quasar is an optional peer, so an app locking in memory never
 installs it. Pass `{ client }` instead to hand over a client directly.
 
+`stores.database({ connection?, tableName? })` leases in a SQL table
+(PostgreSQL, MySQL, SQLite) — for several replicas and a database but no Redis.
+Left out, `connection` is atlas' default connection, loaded on the first lock
+(`@c9up/atlas` is never a dependency); name an atlas connection, or pass any
+client with a `dialect` and a `rawQuery(sql, bindings)`. `tableName` defaults
+to `locks`; the migration ships as
+`stubs/database/migrations/9200_create_locks.stub`. Expiry is read on the
+database clock, so a replica whose clock drifts cannot take a live lease.
+Upstream's DynamoDB store has no counterpart (named deviation: no AWS client in
+the cohort), and the option is `connection`, not `connectionName`, because it
+also takes the client itself.
+
 `ream configure @c9up/eclipse` writes both, sets `LOCK_STORE=redis` and declares
 its validation (`redis` or `memory`). The provider refuses to boot without
 `config/lock.ts`, and `defineConfig` refuses a config whose `default` is unset

@@ -19,6 +19,13 @@ import { type Duration, resolveMs } from "./duration.js";
 import { InvalidConfigError, UnknownStoreError } from "./errors.js";
 import { assertValidTtl, Lock, resolveRetry } from "./Lock.js";
 import { quasarConnection } from "./quasar.js";
+import {
+	assertTableName,
+	atlasDatabase,
+	DatabaseStore,
+	type DatabaseStoreOptions,
+	type LockDatabaseSource,
+} from "./stores/DatabaseStore.js";
 import { MemoryStore } from "./stores/MemoryStore.js";
 import {
 	type LockRedisClient,
@@ -95,6 +102,34 @@ export const stores = {
 			return () => new RedisStore(options.client, options);
 		}
 		return () => new RedisStore(quasarConnection(options.connection), options);
+	},
+	/**
+	 * In a SQL table (PostgreSQL, MySQL, SQLite), shared by every replica that
+	 * reaches the database — for an application without Redis. `connection`
+	 * takes a client of the {@link LockDatabaseSource} shape (atlas' `db`), a
+	 * function answering one, or the NAME of an atlas connection; left out,
+	 * atlas' default connection, loaded on the first lock. `tableName`
+	 * defaults to `locks`.
+	 *
+	 * Upstream names the connection `connectionName`; here it is `connection`,
+	 * as for {@link stores.redis}, because it also takes the client itself —
+	 * the way eclipse stays free of any data layer. Upstream's `dynamodb()`
+	 * store has no counterpart: NAMED DEVIATION, no AWS client is part of the
+	 * cohort, and a DynamoDB table is a client of this same contract away.
+	 */
+	database(
+		options: {
+			connection?: LockDatabaseSource | string;
+		} & Pick<DatabaseStoreOptions, "tableName"> = {},
+	): StoreFactory {
+		const { connection, tableName } = options;
+		// Checked where the config is read, not on the first lock.
+		assertTableName(tableName);
+		const source: LockDatabaseSource =
+			connection === undefined || typeof connection === "string"
+				? () => atlasDatabase(connection)
+				: connection;
+		return () => new DatabaseStore(source, { tableName });
 	},
 };
 

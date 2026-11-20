@@ -1,0 +1,26 @@
+---
+to: database/migrations/9200_create_locks.ts
+---
+import { Migration } from "@c9up/atlas";
+
+/**
+ * The table the database lock store leases in
+ * (`stores.database({ tableName: "locks" })`).
+ */
+export default class CreateLocks extends Migration {
+	async up() {
+		this.schema.createTable("locks", (t) => {
+			// Well inside MySQL's InnoDB utf8mb4 index limit; the store keeps a
+			// longer key as its SHA-256 rather than failing the insert.
+			t.string("key", 255).primary();
+			t.string("owner", 255).notNullable();
+			// Epoch milliseconds on the database clock; NULL never expires.
+			t.bigInteger("expiration").nullable();
+			t.index("expiration");
+		});
+	}
+
+	async down() {
+		this.schema.dropTable("locks");
+	}
+}
