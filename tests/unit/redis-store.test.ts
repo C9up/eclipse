@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
 	EclipseError,
@@ -9,27 +10,46 @@ import {
 	RedisStore,
 } from "../../src/stores/RedisStore.js";
 
+type Command = "set" | "evalsha" | "del" | "exists";
+
 /**
  * The commands are asserted rather than simulated. A fake that re-implements
  * Redis would only prove the fake agrees with itself; what can actually be
  * wrong here is the argument order, the missing NX, a fractional PX, and how
  * a reply is read — which is exactly what these assert.
+ *
+ * The one piece of server state kept is the script cache, because the store's
+ * behaviour depends on it: EVALSHA of a script Redis was never handed answers
+ * NOSCRIPT, as a real server does after a restart or SCRIPT FLUSH.
  */
-function client(
-	replies: Partial<Record<"set" | "eval" | "del" | "exists", unknown>> = {},
-) {
+function client(replies: Partial<Record<Command, unknown>> = {}) {
 	// Key presence, not `??`: `null` is the reply that MEANS "someone else
 	// holds it", and `replies.set ?? "OK"` would quietly turn it back into a
 	// successful acquisition — the fake would then never produce the case the
 	// test exists to cover.
-	const reply = (name: "set" | "eval" | "del" | "exists", fallback: unknown) =>
+	const reply = (name: Command, fallback: unknown) =>
 		name in replies ? replies[name] : fallback;
-	return {
+	const scripts = new Map<string, string>();
+	const commands = {
 		set: vi.fn().mockResolvedValue(reply("set", "OK")),
-		eval: vi.fn().mockResolvedValue(reply("eval", 1)),
+		evalsha: vi.fn(async (sha: string) => {
+			if (!scripts.has(sha)) throw new Error("NOSCRIPT No matching script");
+			return reply("evalsha", 1);
+		}),
+		script: vi.fn(async (subcommand: "LOAD", lua: string) => {
+			if (subcommand !== "LOAD") throw new Error("ERR unknown subcommand");
+			const sha = sha1(lua);
+			scripts.set(sha, lua);
+			return sha;
+		}),
 		del: vi.fn().mockResolvedValue(reply("del", 1)),
 		exists: vi.fn().mockResolvedValue(reply("exists", 1)),
 	} satisfies LockRedisClient;
+	return { ...commands, scripts };
+}
+
+function sha1(text: string): string {
+	return createHash("sha1").update(text).digest("hex");
 }
 
 describe("RedisStore", () => {
@@ -70,33 +90,84 @@ describe("RedisStore", () => {
 	});
 
 	it("releases through a script that compares the owner token first", async () => {
-		const redis = client({ eval: 1 });
+		const redis = client({ evalsha: 1 });
 		await new RedisStore(redis).delete("k", "owner-a");
-		const [script, numKeys, key, owner] = redis.eval.mock.calls[0] ?? [];
-		expect(String(script)).toContain("redis.call('get', KEYS[1]) == ARGV[1]");
-		expect(String(script)).toContain("del");
-		expect(numKeys).toBe(1);
-		expect(key).toBe("eclipse:lock:k");
-		expect(owner).toBe("owner-a");
+		const [, script = ""] = redis.script.mock.calls[0] ?? [];
+		expect(script).toContain("redis.call('get', KEYS[1]) == ARGV[1]");
+		expect(script).toContain("del");
+		expect(redis.evalsha).toHaveBeenLastCalledWith(
+			sha1(script),
+			1,
+			"eclipse:lock:k",
+			"owner-a",
+		);
+	});
+
+	it("loads a script the first time Redis does not know it, then runs it by SHA1 only", async () => {
+		const redis = client({ evalsha: 1 });
+		const store = new RedisStore(redis);
+
+		await store.delete("k", "owner-a");
+		// NOSCRIPT, SCRIPT LOAD, then EVALSHA again — in that order.
+		expect(redis.evalsha).toHaveBeenCalledTimes(2);
+		expect(redis.script).toHaveBeenCalledOnce();
+		const [loadOrder] = redis.script.mock.invocationCallOrder;
+		const [firstRun, secondRun] = redis.evalsha.mock.invocationCallOrder;
+		expect(firstRun).toBeLessThan(loadOrder ?? 0);
+		expect(loadOrder).toBeLessThan(secondRun ?? 0);
+
+		await store.delete("k", "owner-a");
+		await store.delete("other", "owner-b");
+		expect(redis.evalsha).toHaveBeenCalledTimes(4);
+		expect(redis.script).toHaveBeenCalledOnce();
+	});
+
+	it("loads the script again after Redis lost its script cache", async () => {
+		const redis = client({ evalsha: 1 });
+		const store = new RedisStore(redis);
+		await store.extend("k", "o", 1_000);
+		// A restart or SCRIPT FLUSH empties the cache under a live client.
+		redis.scripts.clear();
+		await store.extend("k", "o", 1_000);
+		expect(redis.script).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not retry a script that failed with anything but NOSCRIPT", async () => {
+		const redis = client();
+		const failure = new Error("BUSY Redis is busy running a script");
+		redis.evalsha.mockRejectedValueOnce(failure);
+		const error = await new RedisStore(redis)
+			.delete("k", "o")
+			.catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(LockStorageError);
+		if (error instanceof LockStorageError) expect(error.cause).toBe(failure);
+		expect(redis.evalsha).toHaveBeenCalledOnce();
+		expect(redis.script).not.toHaveBeenCalled();
 	});
 
 	it("reports a release that removed nothing", async () => {
-		const store = new RedisStore(client({ eval: 0 }));
+		const store = new RedisStore(client({ evalsha: 0 }));
 		await expect(store.delete("k", "owner-a")).rejects.toBeInstanceOf(
 			LockNotOwnedError,
 		);
 	});
 
 	it("extends through pexpire, owner-checked, with an integer duration", async () => {
-		const redis = client({ eval: 1 });
+		const redis = client({ evalsha: 1 });
 		await new RedisStore(redis).extend("k", "owner-a", 2_000.7);
-		const [script, , , , duration] = redis.eval.mock.calls[0] ?? [];
-		expect(String(script)).toContain("pexpire");
-		expect(duration).toBe(2_001);
+		const [, script = ""] = redis.script.mock.calls[0] ?? [];
+		expect(script).toContain("pexpire");
+		expect(redis.evalsha).toHaveBeenLastCalledWith(
+			sha1(script),
+			1,
+			"eclipse:lock:k",
+			"owner-a",
+			2_001,
+		);
 	});
 
 	it("reports an extend that matched nothing", async () => {
-		const store = new RedisStore(client({ eval: 0 }));
+		const store = new RedisStore(client({ evalsha: 0 }));
 		await expect(store.extend("k", "o", 1_000)).rejects.toBeInstanceOf(
 			LockNotOwnedError,
 		);
@@ -217,7 +288,7 @@ describe("RedisStore", () => {
 	});
 
 	it("does not disguise a not-owned error as a storage error", async () => {
-		const store = new RedisStore(client({ eval: 0 }));
+		const store = new RedisStore(client({ evalsha: 0 }));
 		await expect(store.delete("k", "o")).rejects.toBeInstanceOf(
 			LockNotOwnedError,
 		);
@@ -227,7 +298,7 @@ describe("RedisStore", () => {
 		const redis = client();
 		await new RedisStore(redis).forceDelete("k");
 		expect(redis.del).toHaveBeenCalledWith("eclipse:lock:k");
-		expect(redis.eval).not.toHaveBeenCalled();
+		expect(redis.evalsha).not.toHaveBeenCalled();
 	});
 
 	it("reads EXISTS 0 as free", async () => {

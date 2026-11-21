@@ -18,11 +18,12 @@ import {
 /**
  * The commands this store actually issues.
  *
- * `eval` is in the list because the owner-checked release and extend are Lua
- * scripts — a connection without it would fail on the first `release()`,
- * long after the config named it.
+ * `evalsha` and `script` are in the list because the owner-checked release and
+ * extend are Lua scripts, run by SHA1 and loaded with SCRIPT LOAD when Redis
+ * does not know them — a connection without them would fail on the first
+ * `release()`, long after the config named it.
  */
-const REQUIRED = ["set", "eval", "del", "exists"] as const;
+const REQUIRED = ["set", "evalsha", "script", "del", "exists"] as const;
 
 /**
  * The connection is handed over only once it carries every command above.

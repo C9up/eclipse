@@ -128,7 +128,8 @@ describe("Lock", () => {
 	it("run reports a lost lease on a Redis store, whose release script answered 0", async () => {
 		const redis = {
 			set: vi.fn().mockResolvedValue("OK"),
-			eval: vi.fn().mockResolvedValue(0),
+			evalsha: vi.fn().mockResolvedValue(0),
+			script: vi.fn().mockResolvedValue("sha"),
 			del: vi.fn().mockResolvedValue(1),
 			exists: vi.fn().mockResolvedValue(1),
 		};

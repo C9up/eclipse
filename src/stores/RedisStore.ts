@@ -6,10 +6,12 @@
  * says so.
  *
  * No import of a Redis package. The client is taken structurally — `set`,
- * `eval`, `del`, `exists` — so this works against a `@c9up/quasar` connection
- * without eclipse depending on quasar, which is an optional peer.
+ * `evalsha`, `script`, `del`, `exists` — so this works against a
+ * `@c9up/quasar` connection without eclipse depending on quasar, which is an
+ * optional peer.
  */
 
+import { createHash } from "node:crypto";
 import {
 	EclipseError,
 	LockNotOwnedError,
@@ -18,12 +20,22 @@ import {
 import type { LockStore } from "../types.js";
 import { hasEnded } from "../vendor/quasarConnection.js";
 
-/** The commands this store issues. Any client answering them will do. */
+/**
+ * The commands this store issues. Any client answering them will do.
+ *
+ * The owner-checked release and extend run as Lua scripts through EVALSHA,
+ * loaded with SCRIPT LOAD the first time Redis does not know them, so a client
+ * must answer both — EVAL alone is no longer enough. Supply-chain scanners
+ * report a `.eval` method call as dynamic code execution, and EVALSHA also
+ * saves resending the script body on every release.
+ */
 export interface LockRedisClient {
 	/** `SET key value [PX ttl] NX` — answers null when the key already exists. */
 	set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
-	/** `EVAL script numKeys ...` — the owner-checked release and extend. */
-	eval(script: string, numKeys: number, ...args: unknown[]): Promise<unknown>;
+	/** `EVALSHA sha1 numKeys ...` — runs a script Redis already holds. */
+	evalsha(sha1: string, numKeys: number, ...args: unknown[]): Promise<unknown>;
+	/** `SCRIPT LOAD script` — hands Redis a script so EVALSHA can run it. */
+	script(subcommand: "LOAD", script: string): Promise<unknown>;
 	del(key: string): Promise<unknown>;
 	exists(key: string): Promise<unknown>;
 }
@@ -68,6 +80,23 @@ if redis.call('get', KEYS[1]) == ARGV[1] then
 end
 return 0
 `;
+
+/** A Lua script and the SHA1 Redis knows it by. */
+interface LuaScript {
+	readonly lua: string;
+	readonly sha: string;
+}
+
+function luaScript(lua: string): LuaScript {
+	return { lua, sha: createHash("sha1").update(lua).digest("hex") };
+}
+
+const RELEASE_SCRIPT = luaScript(RELEASE);
+const EXTEND_SCRIPT = luaScript(EXTEND);
+
+function isNoScript(error: unknown): boolean {
+	return error instanceof Error && error.message.startsWith("NOSCRIPT");
+}
 
 export class RedisStore implements LockStore {
 	readonly #source: LockRedisResolver;
@@ -122,6 +151,30 @@ export class RedisStore implements LockStore {
 	}
 
 	/**
+	 * Run a script by its SHA1, loading it first if Redis does not know it.
+	 *
+	 * A NOSCRIPT reply means the script did not run at all — Redis restarted,
+	 * failed over, or had its script cache flushed — so loading it and running
+	 * it again cannot apply the release or extend twice. Any other error is
+	 * rethrown untouched: the script may have run, and retrying it is not
+	 * this helper's call.
+	 */
+	async #runScript(
+		client: LockRedisClient,
+		script: LuaScript,
+		key: string,
+		...args: unknown[]
+	): Promise<unknown> {
+		try {
+			return await client.evalsha(script.sha, 1, key, ...args);
+		} catch (error) {
+			if (!isNoScript(error)) throw error;
+			await client.script("LOAD", script.lua);
+			return client.evalsha(script.sha, 1, key, ...args);
+		}
+	}
+
+	/**
 	 * Every command goes through here so a store failure is reported as one.
 	 *
 	 * A raw ioredis error surfacing from `lock.run()` reads as an application
@@ -164,7 +217,12 @@ export class RedisStore implements LockStore {
 	delete(key: string, owner: string): Promise<void> {
 		return this.#issue("delete", async () => {
 			const client = await this.#client();
-			const removed = await client.eval(RELEASE, 1, this.#key(key), owner);
+			const removed = await this.#runScript(
+				client,
+				RELEASE_SCRIPT,
+				this.#key(key),
+				owner,
+			);
 			// Zero means the key is gone or belongs to someone else. Gone is not
 			// an error — the lease simply lapsed after the work was done — but
 			// eclipse cannot tell the two apart from this reply alone, and the
@@ -191,9 +249,9 @@ export class RedisStore implements LockStore {
 	extend(key: string, owner: string, duration: number): Promise<void> {
 		return this.#issue("extend", async () => {
 			const client = await this.#client();
-			const extended = await client.eval(
-				EXTEND,
-				1,
+			const extended = await this.#runScript(
+				client,
+				EXTEND_SCRIPT,
 				this.#key(key),
 				owner,
 				Math.ceil(duration),

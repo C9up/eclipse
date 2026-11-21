@@ -21,28 +21,24 @@ describe("quasar bridge", () => {
 		loadQuasarConnection.mockReset();
 	});
 
-	it("asks the connection for eval — the release and extend are Lua scripts", async () => {
+	it("asks the connection for evalsha and script — the release and extend are Lua scripts", async () => {
 		loadQuasarConnection.mockResolvedValue({});
 		await quasarConnection("main")();
 		const [request] = loadQuasarConnection.mock.calls[0] ?? [];
 		expect(request).toMatchObject({ pkg: "eclipse", name: "main" });
-		// A connection without `eval` would acquire fine and fail on the first
+		// A connection without them would acquire fine and fail on the first
 		// release(), long after the config named it.
 		expect(request?.required).toEqual(
-			expect.arrayContaining(["set", "eval", "del", "exists"]),
+			expect.arrayContaining(["set", "evalsha", "script", "del", "exists"]),
 		);
-		// And the guard it hands over refuses one that lacks it.
+		expect(request?.required).not.toContain("eval");
+		// And the guard it hands over refuses one that lacks either.
 		const command = () => undefined;
+		const base = { set: command, del: command, exists: command };
+		expect(request?.isConnection({ ...base, evalsha: command })).toBe(false);
+		expect(request?.isConnection({ ...base, script: command })).toBe(false);
 		expect(
-			request?.isConnection({ set: command, del: command, exists: command }),
-		).toBe(false);
-		expect(
-			request?.isConnection({
-				set: command,
-				eval: command,
-				del: command,
-				exists: command,
-			}),
+			request?.isConnection({ ...base, evalsha: command, script: command }),
 		).toBe(true);
 	});
 
@@ -67,7 +63,7 @@ describe("quasar bridge", () => {
 	it("distinguishes a connection that is missing commands", async () => {
 		loadQuasarConnection.mockImplementation(
 			(request: { raise: (reason: string, message: string) => Error }) => {
-				throw request.raise("incomplete-connection", "no eval");
+				throw request.raise("incomplete-connection", "no evalsha");
 			},
 		);
 		const error = await quasarConnection()().catch((e: unknown) => e);

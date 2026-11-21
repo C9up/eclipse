@@ -177,7 +177,8 @@ describe("LockManager", () => {
 	it("stores.redis accepts a client directly, without touching quasar", async () => {
 		const redis = {
 			set: vi.fn().mockResolvedValue("OK"),
-			eval: vi.fn().mockResolvedValue(1),
+			evalsha: vi.fn().mockResolvedValue(1),
+			script: vi.fn().mockResolvedValue("sha"),
 			del: vi.fn().mockResolvedValue(1),
 			exists: vi.fn().mockResolvedValue(0),
 		};
