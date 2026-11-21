@@ -1,6 +1,6 @@
 {
   "name": "@c9up/eclipse",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Eclipse — distributed locks for the Ream framework: pluggable store contract with memory, Redis and SQL database drivers",
   "license": "MIT",
   "type": "module",
