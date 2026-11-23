@@ -8,7 +8,10 @@
  * `src/vendor/quasarConnection.ts`, generated from one source.
  */
 
-import { EclipseError } from "./errors.js";
+import {
+	E_ECLIPSE_INCOMPLETE_CONNECTION,
+	E_ECLIPSE_QUASAR_MISSING,
+} from "./errors.js";
 import type { LockRedisClient } from "./stores/RedisStore.js";
 import {
 	hasCommands,
@@ -48,12 +51,8 @@ export function quasarConnection(
 			what: "the lock store",
 			alternative: "or pass a client directly: stores.redis({ client })",
 			raise: (reason, message, cause) =>
-				new EclipseError(
-					reason === "quasar-missing"
-						? "E_ECLIPSE_QUASAR_MISSING"
-						: "E_ECLIPSE_INCOMPLETE_CONNECTION",
-					message,
-					{ cause },
-				),
+				reason === "quasar-missing"
+					? new E_ECLIPSE_QUASAR_MISSING([message], { cause })
+					: new E_ECLIPSE_INCOMPLETE_CONNECTION([message], { cause }),
 		});
 }

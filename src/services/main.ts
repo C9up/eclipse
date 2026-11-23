@@ -12,6 +12,7 @@
  *     .run(async () => generateInvoices())
  */
 
+import { E_ECLIPSE_NOT_BOOTED } from "../errors.js";
 import { LockManager, stores } from "../LockManager.js";
 
 let instance: LockManager | undefined;
@@ -55,10 +56,7 @@ const locks: LockManager = new Proxy(placeholder, {
 		// reports.
 		if (typeof prop === "symbol" || prop === "then") return undefined;
 		if (!instance) {
-			throw new Error(
-				"[eclipse] LockManager singleton accessed before EclipseProvider.boot() ran " +
-					"or `setLocks(myManager)` was called. Wire one of them first.",
-			);
+			throw new E_ECLIPSE_NOT_BOOTED();
 		}
 		const value = Reflect.get(instance, prop);
 		return typeof value === "function" ? value.bind(instance) : value;

@@ -12,11 +12,8 @@
  */
 
 import { createHash } from "node:crypto";
-import {
-	EclipseError,
-	LockNotOwnedError,
-	LockStorageError,
-} from "../errors.js";
+import { E_LOCK_NOT_OWNED, E_LOCK_STORAGE_ERROR } from "../errors.js";
+import { isEclipseError, reasonOf } from "../isEclipseError.js";
 import type { LockStore } from "../types.js";
 import { hasEnded } from "../vendor/quasarConnection.js";
 
@@ -187,8 +184,11 @@ export class RedisStore implements LockStore {
 		try {
 			return await run();
 		} catch (cause) {
-			if (cause instanceof EclipseError) throw cause;
-			throw new LockStorageError(operation, cause);
+			if (isEclipseError(cause)) throw cause;
+			throw new E_LOCK_STORAGE_ERROR([reasonOf(cause)], {
+				cause: cause,
+				operation,
+			});
 		}
 	}
 
@@ -228,7 +228,7 @@ export class RedisStore implements LockStore {
 			// eclipse cannot tell the two apart from this reply alone, and the
 			// safe reading of "I could not release what I thought I held" is to
 			// say so.
-			if (Number(removed) === 0) throw new LockNotOwnedError(key);
+			if (Number(removed) === 0) throw new E_LOCK_NOT_OWNED(undefined, { key });
 		});
 	}
 
@@ -256,7 +256,8 @@ export class RedisStore implements LockStore {
 				owner,
 				Math.ceil(duration),
 			);
-			if (Number(extended) === 0) throw new LockNotOwnedError(key);
+			if (Number(extended) === 0)
+				throw new E_LOCK_NOT_OWNED(undefined, { key });
 		});
 	}
 }

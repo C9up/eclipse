@@ -22,8 +22,9 @@
  * its own code, rather than two that expire independently.
  */
 
+import type { Exception } from "@c9up/flare";
 import { type Duration, resolveMs } from "./duration.js";
-import { LockNotOwnedError } from "./errors.js";
+import { E_LOCK_NOT_OWNED } from "./errors.js";
 import type { Lock } from "./Lock.js";
 import type { LockManager } from "./LockManager.js";
 
@@ -62,7 +63,7 @@ export interface SchedulerBackendOptions {
 	 *
 	 * Without it the loss is emitted as a process warning, never dropped.
 	 */
-	onLeaseLost?: (name: string, error: LockNotOwnedError) => void;
+	onLeaseLost?: (name: string, error: Exception) => void;
 }
 
 /** A lease this instance holds, and the renewal keeping it alive. */
@@ -72,7 +73,7 @@ interface Held {
 	stop(): boolean;
 }
 
-function reportLeaseLost(name: string, error: LockNotOwnedError): void {
+function reportLeaseLost(name: string, error: Exception): void {
 	process.emitWarning(
 		`Eclipse: the scheduler lease for "${name}" was lost while the task ran; another instance may have run it at the same time.`,
 		{ code: error.code },
@@ -91,7 +92,7 @@ function keepAlive(
 	name: string,
 	lock: Lock,
 	ttl: number | null,
-	onLost: (name: string, error: LockNotOwnedError) => void,
+	onLost: (name: string, error: Exception) => void,
 ): () => boolean {
 	if (ttl === null) return () => false;
 	let stopped = false;
@@ -104,7 +105,7 @@ function keepAlive(
 			lock
 				.extend(ttl)
 				.catch((error: unknown) => {
-					if (stopped || !(error instanceof LockNotOwnedError)) return;
+					if (stopped || !(error instanceof E_LOCK_NOT_OWNED)) return;
 					// A store failure may be transient and the lease may still be
 					// ours, so the next beat tries again; a lease someone else
 					// holds will not come back.
@@ -181,7 +182,7 @@ export function schedulerBackend(
 				// The scheduler calls this from a `finally`, so raising here would
 				// replace whatever the task itself was reporting; the loss goes
 				// to the hook instead.
-				if (error instanceof LockNotOwnedError) {
+				if (error instanceof E_LOCK_NOT_OWNED) {
 					if (!alreadyReported) onLost(name, error);
 					return;
 				}

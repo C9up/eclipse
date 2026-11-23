@@ -20,17 +20,7 @@
 import "./augmentations.js";
 
 export { type Duration, parseDuration, resolveMs } from "./duration.js";
-export {
-	EclipseError,
-	InvalidConfigError,
-	InvalidDurationError,
-	InvalidRetryError,
-	InvalidTtlError,
-	LockNotOwnedError,
-	LockStorageError,
-	MissingConfigError,
-	UnknownStoreError,
-} from "./errors.js";
+export * as errors from "./errors.js";
 export { assertValidTtl, Lock } from "./Lock.js";
 export {
 	defineConfig,

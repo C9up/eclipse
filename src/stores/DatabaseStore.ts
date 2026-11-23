@@ -28,11 +28,13 @@
 
 import { createHash } from "node:crypto";
 import {
-	EclipseError,
-	InvalidConfigError,
-	LockNotOwnedError,
-	LockStorageError,
+	E_ECLIPSE_DATABASE_UNAVAILABLE,
+	E_ECLIPSE_INVALID_CONFIG,
+	E_ECLIPSE_UNSUPPORTED_DATABASE,
+	E_LOCK_NOT_OWNED,
+	E_LOCK_STORAGE_ERROR,
 } from "../errors.js";
+import { isEclipseError, reasonOf } from "../isEclipseError.js";
 import type { LockStore } from "../types.js";
 
 /** A row as the database hands it back. */
@@ -121,9 +123,9 @@ const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
  */
 export function assertTableName(table: string | undefined): void {
 	if (table !== undefined && !TABLE_NAME.test(table)) {
-		throw new InvalidConfigError(
+		throw new E_ECLIPSE_INVALID_CONFIG([
 			`the database lock store's tableName ${JSON.stringify(table)} is not a table name`,
-		);
+		]);
 	}
 }
 
@@ -161,9 +163,10 @@ export async function atlasDatabase(
 	try {
 		loaded = await import(/* @vite-ignore */ specifier);
 	} catch (cause) {
-		throw new EclipseError(
-			"E_ECLIPSE_DATABASE_UNAVAILABLE",
-			`Eclipse: the database lock store asks for atlas' ${which}, but @c9up/atlas is not installed. Install it, or pass a client: stores.database({ connection: db })`,
+		throw new E_ECLIPSE_DATABASE_UNAVAILABLE(
+			[
+				`the database lock store asks for atlas' ${which}, but @c9up/atlas is not installed. Install it, or pass a client: stores.database({ connection: db })`,
+			],
 			{ cause },
 		);
 	}
@@ -178,16 +181,16 @@ export async function atlasDatabase(
 		// Reading `dialect` is what tells a booted atlas from one that is not.
 		if (isLockDatabase(scoped)) return scoped;
 	} catch (cause) {
-		throw new EclipseError(
-			"E_ECLIPSE_DATABASE_UNAVAILABLE",
-			`Eclipse: atlas' ${which} is not available to the database lock store: its provider has not booted, or the connection is not configured`,
+		throw new E_ECLIPSE_DATABASE_UNAVAILABLE(
+			[
+				`atlas' ${which} is not available to the database lock store: its provider has not booted, or the connection is not configured`,
+			],
 			{ cause },
 		);
 	}
-	throw new EclipseError(
-		"E_ECLIPSE_DATABASE_UNAVAILABLE",
-		`Eclipse: @c9up/atlas/services/db did not expose a client with \`dialect\` and \`rawQuery()\` for the ${which}`,
-	);
+	throw new E_ECLIPSE_DATABASE_UNAVAILABLE([
+		`@c9up/atlas/services/db did not expose a client with \`dialect\` and \`rawQuery()\` for the ${which}`,
+	]);
 }
 
 interface Resolved {
@@ -236,10 +239,7 @@ export class DatabaseStore implements LockStore {
 				.then((db): Resolved => {
 					const dialect = DIALECTS.get(db.dialect.toLowerCase());
 					if (dialect === undefined) {
-						throw new EclipseError(
-							"E_ECLIPSE_UNSUPPORTED_DATABASE",
-							`Eclipse: the database lock store supports PostgreSQL, MySQL and SQLite — got the "${db.dialect}" dialect`,
-						);
+						throw new E_ECLIPSE_UNSUPPORTED_DATABASE([db.dialect]);
 					}
 					return { db, dialect };
 				});
@@ -285,8 +285,11 @@ export class DatabaseStore implements LockStore {
 			const { db, dialect } = await this.#db();
 			return await run(db, dialect, this.#names(dialect));
 		} catch (cause) {
-			if (cause instanceof EclipseError) throw cause;
-			throw new LockStorageError(operation, cause);
+			if (isEclipseError(cause)) throw cause;
+			throw new E_LOCK_STORAGE_ERROR([reasonOf(cause)], {
+				cause: cause,
+				operation,
+			});
 		}
 	}
 
@@ -360,14 +363,14 @@ export class DatabaseStore implements LockStore {
 					`DELETE FROM ${n.table} WHERE ${n.key} = ? AND ${n.owner} = ? AND ${n.live} RETURNING ${n.key}`,
 					[id, owner],
 				);
-				if (rows.length === 0) throw new LockNotOwnedError(key);
+				if (rows.length === 0) throw new E_LOCK_NOT_OWNED(undefined, { key });
 				return;
 			}
 			// Checked, then deleted with the owner in the predicate: if the lease
 			// lapses and is taken in between, the delete matches nothing, and the
 			// new holder's lease is left alone.
 			if (!(await this.#heldBy(db, n, id, owner))) {
-				throw new LockNotOwnedError(key);
+				throw new E_LOCK_NOT_OWNED(undefined, { key });
 			}
 			await db.rawQuery(
 				`DELETE FROM ${n.table} WHERE ${n.key} = ? AND ${n.owner} = ?`,
@@ -406,14 +409,14 @@ export class DatabaseStore implements LockStore {
 					`${update} RETURNING ${n.key}`,
 					bindings,
 				);
-				if (rows.length === 0) throw new LockNotOwnedError(key);
+				if (rows.length === 0) throw new E_LOCK_NOT_OWNED(undefined, { key });
 				return;
 			}
 			await db.rawQuery(update, bindings);
 			// Read back: once extended, nobody else can take the key before the
 			// new expiry, so "ours and live" now means the update landed.
 			if (!(await this.#heldBy(db, n, id, owner))) {
-				throw new LockNotOwnedError(key);
+				throw new E_LOCK_NOT_OWNED(undefined, { key });
 			}
 		});
 	}

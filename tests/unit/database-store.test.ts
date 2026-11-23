@@ -12,12 +12,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { Exception } from "@c9up/flare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	EclipseError,
-	InvalidConfigError,
-	LockNotOwnedError,
-	LockStorageError,
+	E_ECLIPSE_INVALID_CONFIG,
+	E_LOCK_NOT_OWNED,
+	E_LOCK_STORAGE_ERROR,
 } from "../../src/errors.js";
 import { defineConfig, LockManager, stores } from "../../src/LockManager.js";
 import {
@@ -134,7 +134,7 @@ describe("DatabaseStore on SQLite — the LockStore contract", () => {
 		const store = new DatabaseStore(client);
 		await store.save("k", "a", 10_000);
 		await expect(store.delete("k", "b")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 		expect(await store.exists("k")).toBe(true);
 		await store.delete("k", "a");
@@ -147,10 +147,10 @@ describe("DatabaseStore on SQLite — the LockStore contract", () => {
 		await store.save("k", "a", 10_000);
 		lapse(client, "k");
 		await expect(store.delete("k", "a")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 		await expect(store.delete("absent", "a")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 	});
 
@@ -168,7 +168,7 @@ describe("DatabaseStore on SQLite — the LockStore contract", () => {
 		const store = new DatabaseStore(client);
 		await store.save("k", "a", 1_000);
 		await expect(store.extend("k", "b", 60_000)).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 		await store.extend("k", "a", 60_000);
 		expect(Number(rows(client)[0]?.expiration)).toBeGreaterThan(
@@ -176,7 +176,7 @@ describe("DatabaseStore on SQLite — the LockStore contract", () => {
 		);
 		lapse(client, "k");
 		await expect(store.extend("k", "a", 60_000)).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 	});
 
@@ -204,7 +204,7 @@ describe("DatabaseStore on SQLite — the LockStore contract", () => {
 	it("reports a store failure as E_LOCK_STORAGE_ERROR", async () => {
 		const store = new DatabaseStore(sqliteClient(":memory:", false));
 		const failure = store.save("k", "a", 1_000);
-		await expect(failure).rejects.toBeInstanceOf(LockStorageError);
+		await expect(failure).rejects.toBeInstanceOf(E_LOCK_STORAGE_ERROR);
 		await expect(store.exists("k")).rejects.toMatchObject({
 			code: "E_LOCK_STORAGE_ERROR",
 		});
@@ -242,7 +242,7 @@ describe("DatabaseStore across two connections (two replicas, one file)", () => 
 		expect(results.filter(Boolean)).toHaveLength(1);
 		await expect(
 			b.delete("invoices:nightly", "replica-b"),
-		).rejects.toBeInstanceOf(LockNotOwnedError);
+		).rejects.toBeInstanceOf(E_LOCK_NOT_OWNED);
 		await a.delete("invoices:nightly", "replica-a");
 		expect(await b.save("invoices:nightly", "replica-b", 10_000)).toBe(true);
 		first.db.close();
@@ -296,10 +296,10 @@ describe("DatabaseStore statements — PostgreSQL", () => {
 		const { client, sent } = scripted("postgresql", () => []);
 		const store = new DatabaseStore(client);
 		await expect(store.delete("k", "a")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 		await expect(store.extend("k", "a", 10)).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 		expect(sent).toHaveLength(2);
 		for (const { sql } of sent) {
@@ -349,7 +349,7 @@ describe("DatabaseStore statements — MySQL", () => {
 		});
 		await expect(
 			new DatabaseStore(client).save("k", "b", 1_000),
-		).rejects.toBeInstanceOf(LockStorageError);
+		).rejects.toBeInstanceOf(E_LOCK_STORAGE_ERROR);
 	});
 
 	it("checks the owner before a release, and deletes with the owner in the predicate", async () => {
@@ -365,7 +365,7 @@ describe("DatabaseStore statements — MySQL", () => {
 		);
 		await expect(
 			new DatabaseStore(lapsed.client).delete("k", "a"),
-		).rejects.toBeInstanceOf(LockNotOwnedError);
+		).rejects.toBeInstanceOf(E_LOCK_NOT_OWNED);
 		expect(lapsed.sent).toHaveLength(1);
 	});
 
@@ -375,7 +375,7 @@ describe("DatabaseStore statements — MySQL", () => {
 		);
 		await expect(
 			new DatabaseStore(other.client).extend("k", "a", 1_000),
-		).rejects.toBeInstanceOf(LockNotOwnedError);
+		).rejects.toBeInstanceOf(E_LOCK_NOT_OWNED);
 		expect(other.sent.map((s) => s.sql.split(" ")[0])).toEqual([
 			"UPDATE",
 			"SELECT",
@@ -387,7 +387,7 @@ describe("DatabaseStore configuration", () => {
 	it("refuses a dialect it has no SQL for", async () => {
 		const { client } = scripted("mssql");
 		const failure = new DatabaseStore(client).exists("k");
-		await expect(failure).rejects.toBeInstanceOf(EclipseError);
+		await expect(failure).rejects.toBeInstanceOf(Exception);
 		await expect(new DatabaseStore(client).exists("k")).rejects.toMatchObject({
 			code: "E_ECLIPSE_UNSUPPORTED_DATABASE",
 		});
@@ -396,7 +396,7 @@ describe("DatabaseStore configuration", () => {
 	it("refuses a table name that is not an identifier, where it is configured", () => {
 		expect(() =>
 			stores.database({ tableName: 'locks"; DROP TABLE users; --' }),
-		).toThrow(InvalidConfigError);
+		).toThrow(E_ECLIPSE_INVALID_CONFIG);
 	});
 
 	it("is reachable from the config as stores.database()", async () => {

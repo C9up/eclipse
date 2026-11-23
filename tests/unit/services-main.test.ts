@@ -24,7 +24,12 @@ describe("services/main", () => {
 
 	it("reports clearly when it is used before anything bound it", () => {
 		clearLocks();
-		expect(() => locks.createLock("k")).toThrow(/before EclipseProvider.boot/);
+		expect(() => locks.createLock("k")).toThrow(
+			expect.objectContaining({
+				code: "E_ECLIPSE_NOT_BOOTED",
+				message: expect.stringMatching(/before EclipseProvider.boot/),
+			}),
+		);
 	});
 
 	it("forwards to the bound manager, with methods still bound to it", async () => {

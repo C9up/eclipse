@@ -7,7 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import { type Duration, resolveMs } from "./duration.js";
-import { InvalidRetryError, InvalidTtlError } from "./errors.js";
+import { E_ECLIPSE_INVALID_RETRY, E_ECLIPSE_INVALID_TTL } from "./errors.js";
 import type {
 	LockAcquireOptions,
 	LockStore,
@@ -44,7 +44,7 @@ function sleep(ms: number): Promise<void> {
 export function assertValidTtl(ttl: number | null): void {
 	if (ttl === null) return;
 	if (!Number.isFinite(ttl) || ttl <= 0 || ttl > Number.MAX_SAFE_INTEGER) {
-		throw new InvalidTtlError(ttl);
+		throw new E_ECLIPSE_INVALID_TTL([String(ttl)]);
 	}
 }
 
@@ -66,11 +66,11 @@ export function resolveRetry(
 		attempts !== Number.POSITIVE_INFINITY &&
 		!(Number.isInteger(attempts) && attempts > 0)
 	) {
-		throw new InvalidRetryError(
+		throw new E_ECLIPSE_INVALID_RETRY([
 			"attempts",
-			attempts,
 			"a positive integer, or Infinity",
-		);
+			String(attempts),
+		]);
 	}
 	const delay =
 		retry?.delay === undefined ? base.delay : resolveMs(retry.delay, null);
@@ -80,11 +80,11 @@ export function resolveRetry(
 		delay < 0 ||
 		delay > MAX_DELAY_MS
 	) {
-		throw new InvalidRetryError(
+		throw new E_ECLIPSE_INVALID_RETRY([
 			"delay",
-			delay,
 			`a duration between 0 and ${MAX_DELAY_MS}ms`,
-		);
+			String(delay),
+		]);
 	}
 	const timeout =
 		retry?.timeout === undefined
@@ -94,11 +94,11 @@ export function resolveRetry(
 	// (or left out), and an infinite number is what a division by an unset
 	// setting produces, which would silently remove the bound.
 	if (timeout !== undefined && !(Number.isFinite(timeout) && timeout >= 0)) {
-		throw new InvalidRetryError(
+		throw new E_ECLIPSE_INVALID_RETRY([
 			"timeout",
-			timeout,
 			"a finite duration of 0 or more, or null for no deadline",
-		);
+			String(timeout),
+		]);
 	}
 	return { attempts, delay, timeout };
 }
@@ -314,7 +314,7 @@ export class Lock {
 	 */
 	async extend(duration?: Duration): Promise<void> {
 		const ms = resolveMs(duration, this.#ttl);
-		if (ms === null) throw new InvalidTtlError(ms);
+		if (ms === null) throw new E_ECLIPSE_INVALID_TTL([String(ms)]);
 		assertValidTtl(ms);
 		// Timed from before the call: the store applied the expiry before its
 		// reply came back, so the local estimate must err short, never long.

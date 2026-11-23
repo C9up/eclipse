@@ -1,8 +1,8 @@
+import { Exception } from "@c9up/flare";
 import { describe, expect, it, vi } from "vitest";
 import EclipseProvider, {
 	type EclipseAppContext,
 } from "../../src/EclipseProvider.js";
-import { EclipseError } from "../../src/errors.js";
 import { defineConfig, LockManager, stores } from "../../src/LockManager.js";
 import { clearLocks, getLocks } from "../../src/services/main.js";
 
@@ -44,8 +44,8 @@ describe("EclipseProvider", () => {
 		const provider = new EclipseProvider(host);
 		provider.register();
 		const error = await provider.boot().catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(EclipseError);
-		if (error instanceof EclipseError) {
+		expect(error).toBeInstanceOf(Exception);
+		if (error instanceof Exception) {
 			expect(error.code).toBe("E_ECLIPSE_MISSING_CONFIG");
 		}
 		expect(getLocks()).toBeUndefined();
@@ -56,8 +56,8 @@ describe("EclipseProvider", () => {
 		const provider = new EclipseProvider(host);
 		provider.register();
 		const error = await provider.boot().catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(EclipseError);
-		if (error instanceof EclipseError) {
+		expect(error).toBeInstanceOf(Exception);
+		if (error instanceof Exception) {
 			expect(error.code).toBe("E_ECLIPSE_INVALID_CONFIG");
 			expect(error.message).toMatch(/defineConfig/);
 		}
@@ -126,6 +126,9 @@ describe("EclipseProvider", () => {
 		// A host is free to rebind; it must not then be handed to callers as a
 		// LockManager and fail on the first createLock.
 		host.bindings.set(LockManager, () => ({ notALockManager: true }));
-		await expect(provider.boot()).rejects.toThrow(/not a LockManager/);
+		await expect(provider.boot()).rejects.toMatchObject({
+			code: "E_ECLIPSE_INVALID_BINDING",
+			message: expect.stringMatching(/not a LockManager/),
+		});
 	});
 });

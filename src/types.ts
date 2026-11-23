@@ -30,7 +30,7 @@ export interface LockStore {
 	/**
 	 * Release the lock, but only if `owner` still holds it.
 	 *
-	 * @throws {import("./errors.js").LockNotOwnedError} when it does not.
+	 * @throws `E_LOCK_NOT_OWNED` when it does not.
 	 */
 	delete(key: string, owner: string): Promise<void>;
 
@@ -44,7 +44,7 @@ export interface LockStore {
 	 * Push the expiry out by `duration` milliseconds from now, if `owner`
 	 * still holds it.
 	 *
-	 * @throws {import("./errors.js").LockNotOwnedError} when it does not.
+	 * @throws `E_LOCK_NOT_OWNED` when it does not.
 	 */
 	extend(key: string, owner: string, duration: number): Promise<void>;
 

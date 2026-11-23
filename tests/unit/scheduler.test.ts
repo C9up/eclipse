@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LockNotOwnedError } from "../../src/errors.js";
+import { E_LOCK_NOT_OWNED } from "../../src/errors.js";
 import { LockManager, stores } from "../../src/LockManager.js";
 import { schedulerBackend } from "../../src/scheduler.js";
 import { MemoryStore } from "../../src/stores/MemoryStore.js";
@@ -153,7 +153,7 @@ describe("schedulerBackend", () => {
 			await vi.advanceTimersByTimeAsync(150);
 			expect(lost).toHaveLength(1);
 			expect(lost[0]?.[0]).toBe("t");
-			expect(lost[0]?.[1]).toBeInstanceOf(LockNotOwnedError);
+			expect(lost[0]?.[1]).toBeInstanceOf(E_LOCK_NOT_OWNED);
 			const attempts = extend.mock.calls.length;
 			await vi.advanceTimersByTimeAsync(1_000);
 			expect(extend.mock.calls.length).toBe(attempts);

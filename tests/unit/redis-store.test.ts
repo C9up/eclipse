@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
+import { Exception } from "@c9up/flare";
 import { describe, expect, it, vi } from "vitest";
 import {
-	EclipseError,
-	LockNotOwnedError,
-	LockStorageError,
+	E_ECLIPSE_QUASAR_MISSING,
+	E_LOCK_NOT_OWNED,
+	E_LOCK_STORAGE_ERROR,
 } from "../../src/errors.js";
 import {
 	type LockRedisClient,
@@ -139,8 +140,9 @@ describe("RedisStore", () => {
 		const error = await new RedisStore(redis)
 			.delete("k", "o")
 			.catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(LockStorageError);
-		if (error instanceof LockStorageError) expect(error.cause).toBe(failure);
+		expect(error).toBeInstanceOf(E_LOCK_STORAGE_ERROR);
+		if (error instanceof E_LOCK_STORAGE_ERROR)
+			expect(error.cause).toBe(failure);
 		expect(redis.evalsha).toHaveBeenCalledOnce();
 		expect(redis.script).not.toHaveBeenCalled();
 	});
@@ -148,7 +150,7 @@ describe("RedisStore", () => {
 	it("reports a release that removed nothing", async () => {
 		const store = new RedisStore(client({ evalsha: 0 }));
 		await expect(store.delete("k", "owner-a")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 	});
 
@@ -169,7 +171,7 @@ describe("RedisStore", () => {
 	it("reports an extend that matched nothing", async () => {
 		const store = new RedisStore(client({ evalsha: 0 }));
 		await expect(store.extend("k", "o", 1_000)).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 	});
 
@@ -233,7 +235,7 @@ describe("RedisStore", () => {
 			return redis;
 		});
 		await expect(store.save("k", "o", 10)).rejects.toBeInstanceOf(
-			LockStorageError,
+			E_LOCK_STORAGE_ERROR,
 		);
 		expect(await store.save("k", "o", 10)).toBe(true);
 		await store.exists("k");
@@ -265,12 +267,12 @@ describe("RedisStore", () => {
 
 	it("lets a configuration error from the resolver keep its own code", async () => {
 		const store = new RedisStore(async () => {
-			throw new EclipseError("E_ECLIPSE_QUASAR_MISSING", "not installed");
+			throw new E_ECLIPSE_QUASAR_MISSING(["not installed"]);
 		});
 		const error = await store.save("k", "o", 10).catch((e: unknown) => e);
-		expect(error).not.toBeInstanceOf(LockStorageError);
-		expect(error).toBeInstanceOf(EclipseError);
-		if (error instanceof EclipseError) {
+		expect(error).not.toBeInstanceOf(E_LOCK_STORAGE_ERROR);
+		expect(error).toBeInstanceOf(Exception);
+		if (error instanceof Exception) {
 			expect(error.code).toBe("E_ECLIPSE_QUASAR_MISSING");
 		}
 	});
@@ -280,9 +282,11 @@ describe("RedisStore", () => {
 		redis.set.mockRejectedValue(new Error("ECONNREFUSED"));
 		const store = new RedisStore(redis);
 		const error = await store.save("k", "o", 10).catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(LockStorageError);
-		if (error instanceof LockStorageError) {
+		expect(error).toBeInstanceOf(E_LOCK_STORAGE_ERROR);
+		if (error instanceof E_LOCK_STORAGE_ERROR) {
 			expect(error.code).toBe("E_LOCK_STORAGE_ERROR");
+			expect(error.message).toBe("Lock storage error: ECONNREFUSED");
+			expect(error.operation).toBe("save");
 			expect(error.cause).toBeInstanceOf(Error);
 		}
 	});
@@ -290,7 +294,7 @@ describe("RedisStore", () => {
 	it("does not disguise a not-owned error as a storage error", async () => {
 		const store = new RedisStore(client({ evalsha: 0 }));
 		await expect(store.delete("k", "o")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 	});
 

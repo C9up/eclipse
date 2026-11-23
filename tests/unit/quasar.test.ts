@@ -1,5 +1,5 @@
+import { Exception } from "@c9up/flare";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { EclipseError } from "../../src/errors.js";
 
 const loadQuasarConnection = vi.hoisted(() => vi.fn());
 vi.mock("../../src/vendor/quasarConnection.js", async (importOriginal) => ({
@@ -54,8 +54,8 @@ describe("quasar bridge", () => {
 			},
 		);
 		const error = await quasarConnection()().catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(EclipseError);
-		if (error instanceof EclipseError) {
+		expect(error).toBeInstanceOf(Exception);
+		if (error instanceof Exception) {
 			expect(error.code).toBe("E_ECLIPSE_QUASAR_MISSING");
 		}
 	});
@@ -67,8 +67,8 @@ describe("quasar bridge", () => {
 			},
 		);
 		const error = await quasarConnection()().catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(EclipseError);
-		if (error instanceof EclipseError) {
+		expect(error).toBeInstanceOf(Exception);
+		if (error instanceof Exception) {
 			expect(error.code).toBe("E_ECLIPSE_INCOMPLETE_CONNECTION");
 		}
 	});

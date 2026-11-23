@@ -16,7 +16,7 @@
  */
 
 import { type Duration, resolveMs } from "./duration.js";
-import { InvalidConfigError, UnknownStoreError } from "./errors.js";
+import { E_ECLIPSE_INVALID_CONFIG, E_ECLIPSE_UNKNOWN_STORE } from "./errors.js";
 import { assertValidTtl, Lock, resolveRetry } from "./Lock.js";
 import { quasarConnection } from "./quasar.js";
 import {
@@ -202,16 +202,19 @@ function ownStore(
 function assertValidConfig(config: LockConfig): void {
 	const declared: unknown = config.stores;
 	if (typeof declared !== "object" || declared === null) {
-		throw new InvalidConfigError('missing "stores" in the lock config');
+		throw new E_ECLIPSE_INVALID_CONFIG(['missing "stores" in the lock config']);
 	}
 	const name: unknown = config.default;
 	if (typeof name !== "string" || name === "") {
-		throw new InvalidConfigError(
+		throw new E_ECLIPSE_INVALID_CONFIG([
 			'missing "default" store in the lock config (is LOCK_STORE set?)',
-		);
+		]);
 	}
 	if (ownStore(config.stores, name) === undefined) {
-		throw new UnknownStoreError(name, Object.keys(config.stores));
+		throw new E_ECLIPSE_UNKNOWN_STORE([
+			name,
+			Object.keys(config.stores).join(", ") || "(none)",
+		]);
 	}
 }
 
@@ -232,7 +235,10 @@ export class LockManager {
 
 		const factory = ownStore(this.#config.stores, store);
 		if (!factory) {
-			throw new UnknownStoreError(store, Object.keys(this.#config.stores));
+			throw new E_ECLIPSE_UNKNOWN_STORE([
+				store,
+				Object.keys(this.#config.stores).join(", ") || "(none)",
+			]);
 		}
 		const built = new LockFactory(factory(), {
 			retry: this.#config.retry,

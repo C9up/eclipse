@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { InvalidRetryError, InvalidTtlError } from "../../src/errors.js";
+import {
+	E_ECLIPSE_INVALID_RETRY,
+	E_ECLIPSE_INVALID_TTL,
+} from "../../src/errors.js";
 import { Lock } from "../../src/Lock.js";
 import { LockFactory } from "../../src/LockManager.js";
 import { MemoryStore } from "../../src/stores/MemoryStore.js";
@@ -37,7 +40,7 @@ describe("retry option validation", () => {
 			const { store, save } = busyStore();
 			const lock = new LockFactory(store).createLock("busy");
 			await expect(lock.acquire({ retry })).rejects.toBeInstanceOf(
-				InvalidRetryError,
+				E_ECLIPSE_INVALID_RETRY,
 			);
 			expect(save).not.toHaveBeenCalled();
 		},
@@ -47,7 +50,7 @@ describe("retry option validation", () => {
 		"a factory refuses %s as a default where it is configured",
 		(_label, retry) => {
 			expect(() => new LockFactory(new MemoryStore(), { retry })).toThrow(
-				InvalidRetryError,
+				E_ECLIPSE_INVALID_RETRY,
 			);
 		},
 	);
@@ -57,8 +60,8 @@ describe("retry option validation", () => {
 		const error = await lock
 			.acquire({ retry: { timeout: Number.NaN } })
 			.catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(InvalidRetryError);
-		if (error instanceof InvalidRetryError) {
+		expect(error).toBeInstanceOf(E_ECLIPSE_INVALID_RETRY);
+		if (error instanceof E_ECLIPSE_INVALID_RETRY) {
 			expect(error.code).toBe("E_ECLIPSE_INVALID_RETRY");
 			expect(error.message).toContain("timeout");
 			expect(error.message).toContain("NaN");
@@ -108,9 +111,9 @@ describe("TTL bounds", () => {
 		(_label, ttl) => {
 			expect(() =>
 				new LockFactory(new MemoryStore()).createLock("k", ttl),
-			).toThrow(InvalidTtlError);
+			).toThrow(E_ECLIPSE_INVALID_TTL);
 			expect(() => new LockFactory(new MemoryStore(), { ttl })).toThrow(
-				InvalidTtlError,
+				E_ECLIPSE_INVALID_TTL,
 			);
 		},
 	);
@@ -118,7 +121,9 @@ describe("TTL bounds", () => {
 	it("refuses to extend by a duration past the same bound", async () => {
 		const lock = new LockFactory(new MemoryStore()).createLock("k", 1_000);
 		await lock.acquireImmediately();
-		await expect(lock.extend(1e21)).rejects.toBeInstanceOf(InvalidTtlError);
+		await expect(lock.extend(1e21)).rejects.toBeInstanceOf(
+			E_ECLIPSE_INVALID_TTL,
+		);
 		await lock.release();
 	});
 

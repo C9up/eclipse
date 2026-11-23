@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LockNotOwnedError } from "../../src/errors.js";
+import { E_LOCK_NOT_OWNED } from "../../src/errors.js";
 import { MemoryStore } from "../../src/stores/MemoryStore.js";
 
 describe("MemoryStore", () => {
@@ -38,7 +38,7 @@ describe("MemoryStore", () => {
 		const store = new MemoryStore();
 		await store.save("k", "owner-a", 1_000);
 		await expect(store.delete("k", "owner-b")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 		expect(await store.exists("k")).toBe(true);
 	});
@@ -52,7 +52,7 @@ describe("MemoryStore", () => {
 			await store.save("k", "owner-a", 1_000);
 			vi.advanceTimersByTime(1_001);
 			await expect(store.delete("k", "owner-a")).rejects.toBeInstanceOf(
-				LockNotOwnedError,
+				E_LOCK_NOT_OWNED,
 			);
 		} finally {
 			vi.useRealTimers();
@@ -72,7 +72,7 @@ describe("MemoryStore", () => {
 			const store = new MemoryStore();
 			await store.save("k", "owner-a", 1_000);
 			await expect(store.extend("k", "owner-b", 5_000)).rejects.toBeInstanceOf(
-				LockNotOwnedError,
+				E_LOCK_NOT_OWNED,
 			);
 			await store.extend("k", "owner-a", 5_000);
 			vi.advanceTimersByTime(4_000);

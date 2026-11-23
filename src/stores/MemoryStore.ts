@@ -8,7 +8,7 @@
  * why a config that names this store in production is worth a second look.
  */
 
-import { LockNotOwnedError } from "../errors.js";
+import { E_LOCK_NOT_OWNED } from "../errors.js";
 import type { LockStore } from "../types.js";
 
 interface Entry {
@@ -85,7 +85,7 @@ export class MemoryStore implements LockStore {
 		// is worth reporting, not swallowing — `Lock.run` raises it too, unless
 		// the work itself threw.
 		if (entry === undefined || entry.owner !== owner) {
-			return Promise.reject(new LockNotOwnedError(key));
+			return Promise.reject(new E_LOCK_NOT_OWNED(undefined, { key }));
 		}
 		this.#entries.delete(key);
 		return Promise.resolve();
@@ -103,7 +103,7 @@ export class MemoryStore implements LockStore {
 	extend(key: string, owner: string, duration: number): Promise<void> {
 		const entry = this.#live(key);
 		if (entry === undefined || entry.owner !== owner) {
-			return Promise.reject(new LockNotOwnedError(key));
+			return Promise.reject(new E_LOCK_NOT_OWNED(undefined, { key }));
 		}
 		entry.expiresAt = Date.now() + duration;
 		return Promise.resolve();

@@ -13,7 +13,7 @@
  * here rather than converting silently somewhere in the middle.
  */
 
-import { InvalidDurationError } from "./errors.js";
+import { E_ECLIPSE_INVALID_DURATION } from "./errors.js";
 
 /**
  * A lock duration:
@@ -66,16 +66,18 @@ const DURATION_RE = /^\s*(-?\d+(?:\.\d+)?)\s*([a-z]+)?\s*$/i;
 export function parseDuration(value: string): number {
 	const match = DURATION_RE.exec(value);
 	if (!match) {
-		throw new InvalidDurationError(`invalid duration string "${value}"`);
+		throw new E_ECLIPSE_INVALID_DURATION([
+			`invalid duration string "${value}"`,
+		]);
 	}
 	const amount = Number(match[1]);
 	const unit = match[2]?.toLowerCase();
 	if (unit === undefined) return amount;
 	const factor = UNIT_MS.get(unit);
 	if (factor === undefined) {
-		throw new InvalidDurationError(
+		throw new E_ECLIPSE_INVALID_DURATION([
 			`unknown duration unit "${unit}" in "${value}"`,
-		);
+		]);
 	}
 	return amount * factor;
 }

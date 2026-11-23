@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-	InvalidTtlError,
-	LockNotOwnedError,
-	LockStorageError,
+	E_ECLIPSE_INVALID_TTL,
+	E_LOCK_NOT_OWNED,
+	E_LOCK_STORAGE_ERROR,
 } from "../../src/errors.js";
 import { Lock } from "../../src/Lock.js";
 import { LockManager, stores } from "../../src/LockManager.js";
@@ -32,10 +32,10 @@ describe("Lock", () => {
 	it("refuses a TTL that expires the instant it is taken", () => {
 		expect(
 			() => new Lock("k", new MemoryStore(), config(), undefined, 0),
-		).toThrow(InvalidTtlError);
+		).toThrow(E_ECLIPSE_INVALID_TTL);
 		expect(
 			() => new Lock("k", new MemoryStore(), config(), undefined, -5),
-		).toThrow(InvalidTtlError);
+		).toThrow(E_ECLIPSE_INVALID_TTL);
 	});
 
 	it("acquireImmediately reports instead of waiting — what a scheduler tick needs", async () => {
@@ -108,7 +108,7 @@ describe("Lock", () => {
 			expect(await second.acquireImmediately()).toBe(true);
 			return "A";
 		});
-		await expect(outcome).rejects.toBeInstanceOf(LockNotOwnedError);
+		await expect(outcome).rejects.toBeInstanceOf(E_LOCK_NOT_OWNED);
 		// The failed release did not touch the second holder's lease.
 		expect(await store.exists("job")).toBe(true);
 		await second.release();
@@ -122,7 +122,7 @@ describe("Lock", () => {
 				await new Promise((resolve) => setTimeout(resolve, 40));
 				return "A";
 			}),
-		).rejects.toBeInstanceOf(LockNotOwnedError);
+		).rejects.toBeInstanceOf(E_LOCK_NOT_OWNED);
 	});
 
 	it("run reports a lost lease on a Redis store, whose release script answered 0", async () => {
@@ -135,7 +135,7 @@ describe("Lock", () => {
 		};
 		const lock = new Lock("job", new RedisStore(redis), config());
 		await expect(lock.run(async () => "A")).rejects.toBeInstanceOf(
-			LockNotOwnedError,
+			E_LOCK_NOT_OWNED,
 		);
 	});
 
@@ -144,7 +144,9 @@ describe("Lock", () => {
 		const store: LockStore = {
 			save: () => Promise.resolve(true),
 			delete: () =>
-				Promise.reject(new LockStorageError("delete", new Error("ECONNRESET"))),
+				Promise.reject(
+					new E_LOCK_STORAGE_ERROR(["ECONNRESET"], { operation: "delete" }),
+				),
 			forceDelete: () => Promise.resolve(),
 			exists: () => Promise.resolve(true),
 			extend: () => Promise.resolve(),
@@ -168,14 +170,16 @@ describe("Lock", () => {
 		const store: LockStore = {
 			save: () => Promise.resolve(true),
 			delete: () =>
-				Promise.reject(new LockStorageError("delete", new Error("ECONNRESET"))),
+				Promise.reject(
+					new E_LOCK_STORAGE_ERROR(["ECONNRESET"], { operation: "delete" }),
+				),
 			forceDelete: () => Promise.resolve(),
 			exists: () => Promise.resolve(true),
 			extend: () => Promise.resolve(),
 		};
 		await expect(
 			new Lock("k", store, config()).run(async () => "done"),
-		).rejects.toBeInstanceOf(LockStorageError);
+		).rejects.toBeInstanceOf(E_LOCK_STORAGE_ERROR);
 	});
 
 	it("a direct release still reports a lease that is gone", async () => {
@@ -183,7 +187,7 @@ describe("Lock", () => {
 		const lock = new Lock("k", store, config(), undefined, 20);
 		await lock.acquireImmediately();
 		await new Promise((resolve) => setTimeout(resolve, 40));
-		await expect(lock.release()).rejects.toBeInstanceOf(LockNotOwnedError);
+		await expect(lock.release()).rejects.toBeInstanceOf(E_LOCK_NOT_OWNED);
 	});
 
 	it("waits for the holder, then takes the lock — the cache-stampede path", async () => {
@@ -284,7 +288,7 @@ describe("Lock", () => {
 	it("extend refuses a duration that bounds nothing", async () => {
 		const lock = new Lock("k", new MemoryStore(), config());
 		await lock.acquireImmediately();
-		await expect(lock.extend(0)).rejects.toBeInstanceOf(InvalidTtlError);
+		await expect(lock.extend(0)).rejects.toBeInstanceOf(E_ECLIPSE_INVALID_TTL);
 	});
 
 	it("serialize/restore hands a held lease to another process", async () => {

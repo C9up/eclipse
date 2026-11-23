@@ -1,5 +1,6 @@
+import { Exception } from "@c9up/flare";
 import { describe, expect, it, vi } from "vitest";
-import { EclipseError, UnknownStoreError } from "../../src/errors.js";
+import { E_ECLIPSE_UNKNOWN_STORE } from "../../src/errors.js";
 import type { LockConfig } from "../../src/LockManager.js";
 import { defineConfig, LockManager, stores } from "../../src/LockManager.js";
 import type { LockStore } from "../../src/types.js";
@@ -12,7 +13,7 @@ describe("LockManager", () => {
 					default: "redis",
 					stores: { memory: stores.memory() },
 				}),
-		).toThrow(UnknownStoreError);
+		).toThrow(E_ECLIPSE_UNKNOWN_STORE);
 	});
 
 	it.each(["toString", "constructor", "__proto__", "hasOwnProperty"])(
@@ -22,14 +23,14 @@ describe("LockManager", () => {
 				default: "memory",
 				stores: { memory: stores.memory() },
 			});
-			expect(() => locks.use(name)).toThrow(UnknownStoreError);
+			expect(() => locks.use(name)).toThrow(E_ECLIPSE_UNKNOWN_STORE);
 			expect(
 				() =>
 					new LockManager({
 						default: name,
 						stores: { memory: stores.memory() },
 					}),
-			).toThrow(UnknownStoreError);
+			).toThrow(E_ECLIPSE_UNKNOWN_STORE);
 		},
 	);
 
@@ -63,8 +64,8 @@ describe("LockManager", () => {
 					}
 					return undefined;
 				})();
-				expect(error).toBeInstanceOf(EclipseError);
-				if (error instanceof EclipseError) {
+				expect(error).toBeInstanceOf(Exception);
+				if (error instanceof Exception) {
 					expect(error.code).toBe("E_ECLIPSE_INVALID_CONFIG");
 				}
 			}
@@ -73,7 +74,7 @@ describe("LockManager", () => {
 		it("defineConfig refuses a default that names no declared store", () => {
 			expect(() =>
 				defineConfig({ default: "redis", stores: { memory: stores.memory() } }),
-			).toThrow(UnknownStoreError);
+			).toThrow(E_ECLIPSE_UNKNOWN_STORE);
 		});
 
 		it("defineConfig hands a valid config back unchanged", () => {

@@ -12,7 +12,11 @@
  */
 
 import "./augmentations.js";
-import { InvalidConfigError, MissingConfigError } from "./errors.js";
+import {
+	E_ECLIPSE_INVALID_BINDING,
+	E_ECLIPSE_INVALID_CONFIG,
+	E_ECLIPSE_MISSING_CONFIG,
+} from "./errors.js";
 import { type LockConfig, LockManager } from "./LockManager.js";
 import { clearLocks, getLocks, setLocks } from "./services/main.js";
 
@@ -67,9 +71,7 @@ export default class EclipseProvider {
 	async #resolveManager(): Promise<LockManager> {
 		const resolved = await this.app.container.resolve(LockManager);
 		if (!(resolved instanceof LockManager)) {
-			throw new Error(
-				"[eclipse] the container returned something that is not a LockManager for the LockManager token.",
-			);
+			throw new E_ECLIPSE_INVALID_BINDING();
 		}
 		return resolved;
 	}
@@ -81,11 +83,11 @@ export default class EclipseProvider {
 			// lock per process, and every replica would take every lock without
 			// a word. An application that really runs as one process says so in
 			// config/lock.ts.
-			if (raw === undefined) throw new MissingConfigError();
+			if (raw === undefined) throw new E_ECLIPSE_MISSING_CONFIG();
 			if (!isLockConfig(raw)) {
-				throw new InvalidConfigError(
+				throw new E_ECLIPSE_INVALID_CONFIG([
 					"config/lock.ts must export defineConfig({ default, stores }).",
-				);
+				]);
 			}
 			return new LockManager(raw);
 		});

@@ -1,6 +1,7 @@
+import { Exception } from "@c9up/flare";
 import { describe, expect, it } from "vitest";
 import { parseDuration, resolveMs } from "../../src/duration.js";
-import { EclipseError, InvalidDurationError } from "../../src/errors.js";
+import { E_ECLIPSE_INVALID_DURATION } from "../../src/errors.js";
 import { LockFactory } from "../../src/LockManager.js";
 import { MemoryStore } from "../../src/stores/MemoryStore.js";
 
@@ -25,8 +26,8 @@ describe("duration", () => {
 
 	it("rejects a string that is not a duration, with a coded error", () => {
 		const invalid = thrown(() => parseDuration("soon"));
-		expect(invalid).toBeInstanceOf(InvalidDurationError);
-		expect(invalid).toBeInstanceOf(EclipseError);
+		expect(invalid).toBeInstanceOf(E_ECLIPSE_INVALID_DURATION);
+		expect(invalid).toBeInstanceOf(Exception);
 		expect(invalid).toMatchObject({ code: "E_ECLIPSE_INVALID_DURATION" });
 		expect(thrown(() => parseDuration("10 parsecs"))).toMatchObject({
 			code: "E_ECLIPSE_INVALID_DURATION",
@@ -52,15 +53,15 @@ describe("duration", () => {
 	it("names the unit, not a NaN, where a lock takes a duration", async () => {
 		const locks = new LockFactory(new MemoryStore());
 		expect(thrown(() => locks.createLock("k", "5constructor"))).toBeInstanceOf(
-			InvalidDurationError,
+			E_ECLIPSE_INVALID_DURATION,
 		);
 		const lock = locks.createLock("k", "1s");
 		await expect(
 			lock.acquire({ retry: { delay: "1toString" } }),
-		).rejects.toBeInstanceOf(InvalidDurationError);
+		).rejects.toBeInstanceOf(E_ECLIPSE_INVALID_DURATION);
 		expect(await lock.acquire()).toBe(true);
 		await expect(lock.extend("2valueOf")).rejects.toBeInstanceOf(
-			InvalidDurationError,
+			E_ECLIPSE_INVALID_DURATION,
 		);
 		await lock.release();
 	});
